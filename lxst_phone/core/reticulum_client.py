@@ -15,6 +15,78 @@ from lxst_phone.identity import load_or_create_identity
 logger = get_logger("core.reticulum")
 
 
+class AnnounceHandler:
+    """
+    Handler for Reticulum announces from other LXST Phone instances.
+    This class is registered with RNS.Transport to receive all announces.
+    """
+    
+    def __init__(self, reticulum_client: 'ReticulumClient'):
+        self.reticulum_client = reticulum_client
+        # Set aspect_filter to None to receive all announces, then filter in received_announce
+        # Alternatively, set to "lxst_phone.signaling" to only get matching aspects
+        self.aspect_filter = None  # Receive all announces and filter ourselves
+    
+    def received_announce(self, destination_hash: bytes, announced_identity: bytes, app_data: bytes) -> None:
+        """
+        Called by Reticulum when an announce is received.
+        
+        Args:
+            destination_hash: Hash of the announced destination
+            announced_identity: Public key of the announcing identity
+            app_data: Application data included in the announce
+        """
+        try:
+            logger.debug(f"Announce received! dest_hash={destination_hash.hex()[:16]}... app_data_len={len(app_data) if app_data else 0}")
+            
+            node_id = RNS.Identity.full_hash(announced_identity).hex()
+            dest_hash_hex = destination_hash.hex()
+            
+            # Parse app_data to get display name
+            display_name = ""
+            if app_data:
+                try:
+                    data = json.loads(app_data.decode('utf-8'))
+                    logger.debug(f"Parsed app_data: {data}")
+                    display_name = data.get('display_name', '')
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    logger.debug(f"Could not parse app_data as JSON")
+                    pass
+            
+            # Don't process our own announces
+            if node_id == self.reticulum_client.node_id:
+                logger.debug(f"Ignoring our own announce")
+                return
+            
+            # Store peer info
+            identity_key_b64 = base64.b64encode(announced_identity).decode('ascii')
+            self.reticulum_client.known_peers[node_id] = (dest_hash_hex, identity_key_b64)
+            
+            logger.info(
+                f"Discovered peer via announce: {node_id[:16]}... "
+                f"({display_name or 'unnamed'}) "
+                f"signaling={dest_hash_hex[:16]}..."
+            )
+            
+            # Notify app layer if callback is set
+            if self.reticulum_client.on_message:
+                from lxst_phone.core.signaling import CallMessage
+                msg = CallMessage(
+                    msg_type="PRESENCE_ANNOUNCE",
+                    call_id="",
+                    from_id=node_id,
+                    to_id="",
+                    display_name=display_name,
+                    media_dest=dest_hash_hex,
+                    media_identity_key=identity_key_b64,
+                    timestamp=time.time(),
+                )
+                self.reticulum_client.on_message(msg)
+                
+        except Exception as exc:
+            logger.error(f"Error in announce handler: {exc}", exc_info=True)
+
+
 class ReticulumClient:
     """
     Reticulum wrapper for LXST Phone signaling and discovery.
@@ -101,7 +173,8 @@ class ReticulumClient:
             logger.error(f"Failed to announce media destination: {exc}")
 
         # Set up announce handler to discover other peers
-        RNS.Transport.register_announce_handler(self._announce_handler)
+        self.announce_handler = AnnounceHandler(self)
+        RNS.Transport.register_announce_handler(self.announce_handler)
         logger.info("Registered announce handler for peer discovery")
 
         logger.info(
@@ -133,53 +206,6 @@ class ReticulumClient:
     def signaling_identity_key_b64(self) -> Optional[str]:
         """Export signaling identity public key (same as media, different dest)."""
         return self._export_identity_public_key()
-
-    def _announce_handler(self, destination_hash: bytes, announced_identity: bytes, app_data: bytes) -> None:
-        """
-        Handle announces from other LXST Phone instances.
-        This is called by RNS.Transport when any destination announces.
-        """
-        try:
-            # Check if this is an lxst_phone signaling destination
-            # We identify our announces by checking if app_data contains our protocol marker
-            if app_data:
-                try:
-                    data = json.loads(app_data.decode('utf-8'))
-                    if data.get('app') == 'lxst_phone' and data.get('type') == 'signaling':
-                        node_id = announced_identity.hex()
-                        signaling_dest_hash = destination_hash.hex()
-                        identity_key_b64 = base64.b64encode(announced_identity).decode('ascii')
-                        display_name = data.get('display_name', '')
-                        
-                        # Store peer info
-                        self.known_peers[node_id] = (signaling_dest_hash, identity_key_b64)
-                        
-                        logger.info(
-                            f"Discovered peer via announce: {node_id[:16]}... "
-                            f"({display_name or 'unnamed'}) "
-                            f"signaling={signaling_dest_hash[:16]}..."
-                        )
-                        
-                        # Notify app layer if callback is set
-                        if self.on_message:
-                            # Create a PRESENCE_ANNOUNCE message for backwards compatibility
-                            from lxst_phone.core.signaling import CallMessage
-                            msg = CallMessage(
-                                msg_type="PRESENCE_ANNOUNCE",
-                                call_id="",
-                                from_id=node_id,
-                                to_id="",
-                                display_name=display_name,
-                                media_dest=signaling_dest_hash,
-                                media_identity_key=identity_key_b64,
-                                timestamp=time.time(),
-                            )
-                            self.on_message(msg)
-                except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
-                    # Not our announce format, ignore
-                    pass
-        except Exception as exc:
-            logger.error(f"Error handling announce: {exc}")
 
     def _old_discovery_packet_callback(self, data: bytes, packet: RNS.Packet) -> None:
         """
