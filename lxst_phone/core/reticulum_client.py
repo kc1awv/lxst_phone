@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Callable, Optional
 import base64
 from pathlib import Path
@@ -16,13 +17,20 @@ logger = get_logger("core.reticulum")
 
 class ReticulumClient:
     """
-    Reticulum wrapper for hybrid signaling:
-    - PLAIN broadcast for discovery/presence announcements
-    - SINGLE destinations for private call signaling (INVITE, ACCEPT, etc.)
-
-    Discovery: Clients announce their signaling destination on PLAIN
-    Signaling: Call messages are sent directly to recipient's SINGLE destination
-    Media: Links use separate SINGLE media destination (existing)
+    Reticulum wrapper for LXST Phone signaling and discovery.
+    
+    Discovery: Uses Reticulum's built-in announce mechanism
+      - Each client announces its signaling destination with app_data
+      - Announces propagate across all RNS interfaces (local, TCP, radio, etc.)
+      - Announce handler filters for lxst_phone announces and stores peer info
+    
+    Signaling: SINGLE destinations for private call messages (INVITE, ACCEPT, etc.)
+      - Each peer has a SINGLE signaling destination for receiving call control
+      - Messages are sent as encrypted packets to recipient's signaling destination
+    
+    Media: Separate SINGLE destination for establishing voice Links
+      - Uses RNS.Link for actual voice data transfer
+      - Link established after call is accepted
     """
 
     def __init__(
@@ -43,9 +51,6 @@ class ReticulumClient:
 
         self.node_identity: Optional[RNS.Identity] = None
         self.node_id: str = "<uninitialised>"
-
-        self.discovery_rx_dest: Optional[RNS.Destination] = None
-        self.discovery_tx_dest: Optional[RNS.Destination] = None
 
         self.signaling_dest: Optional[RNS.Destination] = None
 
@@ -90,37 +95,17 @@ class ReticulumClient:
                 self._on_media_link_established
             )
         try:
-
             self.media_dest.announce()
             logger.info("Announced media destination")
         except Exception as exc:
             logger.error(f"Failed to announce media destination: {exc}")
 
-        self.discovery_rx_dest = RNS.Destination(
-            None,
-            RNS.Destination.IN,
-            RNS.Destination.PLAIN,
-            self.app_name,
-            "discovery",
-        )
-        self.discovery_rx_dest.set_packet_callback(self._discovery_packet_callback)
-        logger.info(
-            f"Created PLAIN discovery RX: {RNS.prettyhexrep(self.discovery_rx_dest.hash)}"
-        )
-
-        self.discovery_tx_dest = RNS.Destination(
-            None,
-            RNS.Destination.OUT,
-            RNS.Destination.PLAIN,
-            self.app_name,
-            "discovery",
-        )
-        logger.info(
-            f"Created PLAIN discovery TX: {RNS.prettyhexrep(self.discovery_tx_dest.hash)}"
-        )
+        # Set up announce handler to discover other peers
+        RNS.Transport.register_announce_handler(self._announce_handler)
+        logger.info("Registered announce handler for peer discovery")
 
         logger.info(
-            f"Hybrid signaling ready. "
+            f"Signaling ready. "
             f"node_id={self.node_id}, "
             f"signaling={RNS.prettyhexrep(self.signaling_dest.hash)}, "
             f"media={RNS.prettyhexrep(self.media_dest.hash)}"
@@ -149,9 +134,59 @@ class ReticulumClient:
         """Export signaling identity public key (same as media, different dest)."""
         return self._export_identity_public_key()
 
-    def _discovery_packet_callback(self, data: bytes, packet: RNS.Packet) -> None:
-        """Handle PRESENCE_ANNOUNCE messages on PLAIN discovery channel."""
-        logger.debug(f"Discovery packet: {len(data)} bytes")
+    def _announce_handler(self, destination_hash: bytes, announced_identity: bytes, app_data: bytes) -> None:
+        """
+        Handle announces from other LXST Phone instances.
+        This is called by RNS.Transport when any destination announces.
+        """
+        try:
+            # Check if this is an lxst_phone signaling destination
+            # We identify our announces by checking if app_data contains our protocol marker
+            if app_data:
+                try:
+                    data = json.loads(app_data.decode('utf-8'))
+                    if data.get('app') == 'lxst_phone' and data.get('type') == 'signaling':
+                        node_id = announced_identity.hex()
+                        signaling_dest_hash = destination_hash.hex()
+                        identity_key_b64 = base64.b64encode(announced_identity).decode('ascii')
+                        display_name = data.get('display_name', '')
+                        
+                        # Store peer info
+                        self.known_peers[node_id] = (signaling_dest_hash, identity_key_b64)
+                        
+                        logger.info(
+                            f"Discovered peer via announce: {node_id[:16]}... "
+                            f"({display_name or 'unnamed'}) "
+                            f"signaling={signaling_dest_hash[:16]}..."
+                        )
+                        
+                        # Notify app layer if callback is set
+                        if self.on_message:
+                            # Create a PRESENCE_ANNOUNCE message for backwards compatibility
+                            from lxst_phone.core.signaling import CallMessage
+                            msg = CallMessage(
+                                msg_type="PRESENCE_ANNOUNCE",
+                                call_id="",
+                                from_id=node_id,
+                                to_id="",
+                                display_name=display_name,
+                                media_dest=signaling_dest_hash,
+                                media_identity_key=identity_key_b64,
+                                timestamp=time.time(),
+                            )
+                            self.on_message(msg)
+                except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
+                    # Not our announce format, ignore
+                    pass
+        except Exception as exc:
+            logger.error(f"Error handling announce: {exc}")
+
+    def _old_discovery_packet_callback(self, data: bytes, packet: RNS.Packet) -> None:
+        """
+        DEPRECATED: Old PLAIN-based discovery (doesn't work across TCP interfaces).
+        Kept for reference but no longer used.
+        """
+        logger.info(f"!!! Discovery packet received: {len(data)} bytes from {packet.packet_hash.hex() if hasattr(packet, 'packet_hash') else 'unknown'}")
 
         try:
             payload_text = data.decode("utf-8", errors="replace")
@@ -205,30 +240,11 @@ class ReticulumClient:
 
     def send_call_message(self, msg: CallMessage) -> None:
         """
-        Send a call message using hybrid routing:
-        - PRESENCE_ANNOUNCE: broadcast on PLAIN discovery channel
-        - All other messages: send to recipient's SINGLE signaling destination
+        Send a call signaling message to a specific peer's SINGLE signaling destination.
+        Note: PRESENCE_ANNOUNCE is no longer sent via this method - use send_presence_announce() instead.
         """
         if not self.reticulum:
             raise RuntimeError("Reticulum not initialised")
-
-        payload_bytes = json.dumps(msg.to_payload()).encode("utf-8")
-
-        if msg.msg_type == "PRESENCE_ANNOUNCE":
-            if not self.discovery_tx_dest:
-                raise RuntimeError("Discovery TX destination not initialised")
-
-            packet = RNS.Packet(self.discovery_tx_dest, payload_bytes)
-            try:
-                send_ok = packet.send()
-            except Exception as exc:
-                raise RuntimeError(f"Failed to queue discovery packet: {exc}") from exc
-
-            if send_ok is False:
-                raise RuntimeError("RNS.Packet.send() returned False")
-
-            logger.info(f"Broadcast PRESENCE_ANNOUNCE ({len(payload_bytes)} bytes)")
-            return
 
         if not msg.to_id:
             raise ValueError("to_id required for call signaling messages")
@@ -239,6 +255,8 @@ class ReticulumClient:
                 f"Unknown peer {msg.to_id[:16]}... - no signaling destination. "
                 "Ensure peer has announced presence first."
             )
+
+        payload_bytes = json.dumps(msg.to_payload()).encode("utf-8")
 
         signaling_dest_hash, signaling_identity_key = peer_info
 
@@ -280,16 +298,31 @@ class ReticulumClient:
         )
 
     def send_presence_announce(self, display_name: str | None = None) -> None:
-        """Broadcast presence announcement on PLAIN discovery channel."""
-        from lxst_phone.core.signaling import build_announce
-
-        announce_msg = build_announce(
-            from_id=self.node_id,
-            display_name=display_name,
-            signaling_dest=self.signaling_dest_hash,
-            signaling_identity_key=self.signaling_identity_key_b64(),
-        )
-        self.send_call_message(announce_msg)
+        """
+        Announce our signaling destination to the network.
+        Uses Reticulum's built-in announce mechanism which propagates across all interfaces.
+        """
+        if not self.signaling_dest:
+            logger.error("Cannot announce: signaling destination not initialized")
+            return
+        
+        # Create app_data with our protocol marker and display name
+        app_data = {
+            'app': 'lxst_phone',
+            'type': 'signaling',
+            'display_name': display_name or '',
+        }
+        app_data_bytes = json.dumps(app_data).encode('utf-8')
+        
+        try:
+            self.signaling_dest.announce(app_data=app_data_bytes)
+            logger.info(
+                f"Announced signaling destination "
+                f"({display_name or 'no display name'}) "
+                f"hash={RNS.prettyhexrep(self.signaling_dest.hash)}"
+            )
+        except Exception as exc:
+            logger.error(f"Failed to announce signaling destination: {exc}")
 
     def _on_media_link_established(self, link: RNS.Link) -> None:
         logger.info(f"Inbound media link established: {link}")
