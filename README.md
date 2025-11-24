@@ -1,6 +1,6 @@
 # LXST Phone
 
-**Decentralized, Encrypted VoIP over Reticulum**
+**Decentralized, Encrypted Voice over Reticulum (VoR)**
 
 LXST Phone is a peer-to-peer voice calling application built on the [Reticulum Network Stack](https://reticulum.network/). It provides encrypted voice calls without requiring centralized servers, phone numbers, or accounts.
 
