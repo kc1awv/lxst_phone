@@ -20,6 +20,7 @@ Basically, this is a project coded in Python with human oversight and AI assista
 - **Decentralized** - no servers, no accounts, no phone numbers
 - **High-quality audio** with Opus codec (8-64 kbps) or Codec2 (0.7-3.2 kbps)
 - **Automatic codec negotiation** - peers automatically agree on compatible settings
+- **Ringtones** - customizable incoming and outgoing call ringtones
 - **SAS verification** for manually verifying peer identity
 - **Call history** tracking with statistics (encrypted at rest)
 - **Contact management** with peer discovery and verification status
@@ -257,6 +258,56 @@ Set your preferred codec in the **Settings** panel:
 
 Your preference will be used for negotiation, but the final codec depends on both peers' capabilities.
 
+## Ringtones
+
+LXST Phone includes customizable ringtones for incoming and outgoing calls.
+
+### Default Ringtones
+
+On first startup, default ringtones are automatically copied to `~/.lxst_phone/ringtones/`:
+- `incoming.wav` - Played when receiving a call
+- `outgoing.wav` - Played when making a call (ring-back tone)
+
+### Custom Ringtones
+
+To use your own ringtones:
+
+1. **Create or obtain WAV files**:
+   - Format: WAV (PCM)
+   - Sample Rate: 8000 Hz or higher (44100 Hz recommended)
+   - Channels: Mono or Stereo
+   - Duration: 2-5 seconds (loops automatically)
+
+2. **Place files in ringtone directory**:
+   ```bash
+   cp my_ringtone.wav ~/.lxst_phone/ringtones/
+   ```
+
+3. **Update configuration** (`~/.lxst_phone/config.json`):
+   ```json
+   {
+     "audio": {
+       "ringtone_enabled": true,
+       "ringtone_incoming": "my_ringtone.wav",
+       "ringtone_outgoing": "my_ringtone.wav"
+     }
+   }
+   ```
+
+4. **Restart LXST Phone** to apply changes
+
+### Disabling Ringtones
+
+To disable ringtones, set `ringtone_enabled` to `false` in the config file:
+
+```json
+{
+  "audio": {
+    "ringtone_enabled": false
+  }
+}
+```
+
 ## Configuration
 
 Configuration is stored in `~/.lxst_phone/config.json`.
@@ -266,9 +317,12 @@ Configuration is stored in `~/.lxst_phone/config.json`.
 ```json
 {
   "audio": {
-    "input_device": 2,      // Audio input device index (null = system default)
-    "output_device": 3,     // Audio output device index
-    "enabled": true         // Enable/disable audio
+    "input_device": 2,              // Audio input device index (null = system default)
+    "output_device": 3,             // Audio output device index
+    "enabled": true,                // Enable/disable audio
+    "ringtone_enabled": true,       // Enable ringtone playback
+    "ringtone_incoming": "incoming.wav",  // Incoming call ringtone filename
+    "ringtone_outgoing": "outgoing.wav"   // Outgoing call ringtone filename
   }
 }
 ```
@@ -398,7 +452,10 @@ Default log location: `~/.lxst_phone/logs/lxst_phone.log` (rotates at 10MB, keep
 - **Config**: `~/.lxst_phone/config.json`
 - **Peers**: `~/.lxst_phone/peers.json` (verified/blocked status)
 - **Call History**: `~/.lxst_phone/call_history.json` (encrypted)
+- **Ringtones**: `~/.lxst_phone/ringtones/` (incoming.wav, outgoing.wav)
 - **Logs**: `~/.lxst_phone/logs/lxst_phone.log`
+
+On Windows, `~` is `C:\Users\YourUsername`
 
 **Privacy Note**: Call history is encrypted using your identity. Config and peers files are stored in plaintext.
 

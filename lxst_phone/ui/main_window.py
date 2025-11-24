@@ -92,6 +92,17 @@ class MainWindow(QWidget):
             max_calls_per_hour=config.max_calls_per_hour,
         )
 
+        from lxst_phone.ringtone import RingtonePlayer, get_ringtone_paths
+
+        incoming_path, outgoing_path = get_ringtone_paths(
+            config.ringtone_incoming, config.ringtone_outgoing
+        )
+        self.ringtone_player = RingtonePlayer(
+            incoming_ringtone_path=incoming_path,
+            outgoing_ringtone_path=outgoing_path,
+            enabled=config.ringtone_enabled,
+        )
+
         self._call_start_time: float | None = None
 
         peer_count = self.peers_window.get_peer_count()
@@ -945,6 +956,8 @@ class MainWindow(QWidget):
 
     def closeEvent(self, event) -> None:
         """Save configuration when window closes."""
+        self.ringtone_player.cleanup()
+        
         if self.peers_window:
             self.peers_window.close()
 
@@ -1236,6 +1249,8 @@ class MainWindow(QWidget):
         self.append_event(f"State -> {phase.name} (remote={remote_label})")
 
         if phase == CallPhase.IDLE:
+            self.ringtone_player.stop()
+            
             if self._call_start_time is not None and call:
                 duration = int(time.time() - self._call_start_time)
                 direction = "outgoing" if call.initiated_by_local else "incoming"
@@ -1270,6 +1285,8 @@ class MainWindow(QWidget):
             self.reset_btn.setEnabled(True)
             self.simulate_invite_btn.setEnabled(False)
         elif phase == CallPhase.RINGING:
+            self.ringtone_player.play_outgoing()
+            
             self.status_label.setText(
                 f"Status: Ringing {remote_label or (call.remote_id if call else '')}"
             )
@@ -1280,6 +1297,8 @@ class MainWindow(QWidget):
             self.reset_btn.setEnabled(True)
             self.simulate_invite_btn.setEnabled(False)
         elif phase == CallPhase.INCOMING_CALL:
+            self.ringtone_player.play_incoming()
+            
             self.status_label.setText(f"Status: Incoming call from {remote_label}")
             self.call_btn.setEnabled(False)
             self.end_btn.setEnabled(False)
@@ -1288,6 +1307,8 @@ class MainWindow(QWidget):
             self.reset_btn.setEnabled(True)
             self.simulate_invite_btn.setEnabled(False)
         elif phase == CallPhase.IN_CALL:
+            self.ringtone_player.stop()
+            
             if self._call_start_time is None:
                 self._call_start_time = time.time()
 
@@ -1328,6 +1349,8 @@ class MainWindow(QWidget):
                 self.media_active = True
                 self.stats_timer.start()  # Start updating stats display
         elif phase == CallPhase.ENDED:
+            self.ringtone_player.stop()
+            
             self.status_label.setText("Status: Call ended")
             self.call_btn.setEnabled(True)
             self.end_btn.setEnabled(False)

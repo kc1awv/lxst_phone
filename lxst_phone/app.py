@@ -133,6 +133,9 @@ def run_app(argv: list[str] | None = None) -> int:
     logger.info("LXST Phone starting")
     logger.debug(f"Command line arguments: {argv}")
 
+    from lxst_phone.ringtone import copy_default_ringtones
+    copy_default_ringtones()
+
     identity_path = Path(args.identity) if args.identity else None
 
     if args.show_identity:

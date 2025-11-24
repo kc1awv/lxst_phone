@@ -25,6 +25,9 @@ class Config:
             "input_device": None,  # None = system default
             "output_device": None,
             "enabled": True,
+            "ringtone_enabled": True,  # Enable ringtone playback
+            "ringtone_incoming": "incoming.wav",  # Incoming call ringtone
+            "ringtone_outgoing": "outgoing.wav",  # Outgoing call ringtone
         },
         "codec": {
             "type": "opus",  # "opus" or "codec2"
@@ -143,6 +146,30 @@ class Config:
     @audio_enabled.setter
     def audio_enabled(self, value: bool) -> None:
         self.set("audio", "enabled", value)
+
+    @property
+    def ringtone_enabled(self) -> bool:
+        return self.get("audio", "ringtone_enabled", True)
+
+    @ringtone_enabled.setter
+    def ringtone_enabled(self, value: bool) -> None:
+        self.set("audio", "ringtone_enabled", value)
+
+    @property
+    def ringtone_incoming(self) -> str:
+        return self.get("audio", "ringtone_incoming", "incoming.wav")
+
+    @ringtone_incoming.setter
+    def ringtone_incoming(self, value: str) -> None:
+        self.set("audio", "ringtone_incoming", value)
+
+    @property
+    def ringtone_outgoing(self) -> str:
+        return self.get("audio", "ringtone_outgoing", "outgoing.wav")
+
+    @ringtone_outgoing.setter
+    def ringtone_outgoing(self, value: str) -> None:
+        self.set("audio", "ringtone_outgoing", value)
 
     @property
     def target_jitter_ms(self) -> int:
