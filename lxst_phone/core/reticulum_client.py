@@ -39,27 +39,61 @@ class AnnounceHandler:
         try:
             logger.debug(f"Announce received! dest_hash={destination_hash.hex()[:16]}... app_data_len={len(app_data) if app_data else 0}")
             
-            node_id = RNS.Identity.full_hash(announced_identity).hex()
+            # announced_identity can be either an RNS.Identity object or bytes (public key)
+            # Handle both cases
+            if isinstance(announced_identity, RNS.Identity):
+                # It's already an Identity object
+                identity_obj = announced_identity
+                node_id = identity_obj.hash.hex()
+                identity_pub_key = identity_obj.get_public_key()
+            else:
+                # It's bytes (public key), need to reconstruct Identity
+                try:
+                    identity_obj = RNS.Identity(create_keys=False)
+                    identity_obj.load_public_key(announced_identity)
+                    node_id = identity_obj.hash.hex()
+                    identity_pub_key = announced_identity
+                except Exception as e:
+                    logger.error(f"Could not load identity from public key: {e}")
+                    # Fallback: use destination hash as identifier
+                    node_id = destination_hash.hex()
+                    identity_pub_key = announced_identity if isinstance(announced_identity, bytes) else None
+            
             dest_hash_hex = destination_hash.hex()
             
             # Parse app_data to get display name
             display_name = ""
+            is_lxst_phone = False
             if app_data:
                 try:
                     data = json.loads(app_data.decode('utf-8'))
                     logger.debug(f"Parsed app_data: {data}")
-                    display_name = data.get('display_name', '')
+                    
+                    # Check if this is an LXST Phone announce
+                    if data.get('app') == 'lxst_phone' and data.get('type') == 'signaling':
+                        is_lxst_phone = True
+                        display_name = data.get('display_name', '')
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     logger.debug(f"Could not parse app_data as JSON")
                     pass
+            
+            # Ignore non-LXST Phone announces
+            if not is_lxst_phone:
+                logger.debug(f"Ignoring non-LXST Phone announce from {dest_hash_hex[:16]}...")
+                return
             
             # Don't process our own announces
             if node_id == self.reticulum_client.node_id:
                 logger.debug(f"Ignoring our own announce")
                 return
             
-            # Store peer info
-            identity_key_b64 = base64.b64encode(announced_identity).decode('ascii')
+            # Store peer info - need public key as base64
+            if identity_pub_key:
+                identity_key_b64 = base64.b64encode(identity_pub_key).decode('ascii')
+            else:
+                logger.warning(f"No public key available for peer {node_id[:16]}...")
+                return
+            
             self.reticulum_client.known_peers[node_id] = (dest_hash_hex, identity_key_b64)
             
             logger.info(
