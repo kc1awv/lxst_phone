@@ -375,7 +375,9 @@ class ReticulumClient:
             logger.error(f"Failed to announce signaling destination: {exc}")
 
     def _on_media_link_established(self, link: RNS.Link) -> None:
-        logger.info(f"Inbound media link established: {link}")
+        logger.info(f"Inbound media link established: {link.hash.hex() if hasattr(link, 'hash') else link}")
+        logger.debug(f"Link details: status={getattr(link, 'status', '?')}, encrypted={getattr(link, 'encryption_enabled', getattr(link, 'encrypted', '?'))}")
+        
         if self.on_media_link:
             try:
                 self.on_media_link(link)

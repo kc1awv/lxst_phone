@@ -765,9 +765,14 @@ class MediaSession:
         def check_status():
             if self.link and not self.active:
                 status = getattr(self.link, 'status', 'unknown')
+                # Status codes: 0=PENDING, 1=HANDSHAKE, 2=ACTIVE, 3=STALE, 4=CLOSED
+                if status == 4:  # CLOSED - stop monitoring
+                    logger.debug(f"Link monitor: link closed before establishing (call_id={self.call_info.call_id})")
+                    return
+                
                 logger.debug(f"Link status check: {status} (call_id={self.call_info.call_id})")
-                # Schedule next check in 2 seconds if still not active
-                if not self.active and self.link:
+                # Schedule next check in 2 seconds if still not active and not closed
+                if not self.active and self.link and status not in (4, 'unknown'):
                     timer = threading.Timer(2.0, check_status)
                     timer.daemon = True
                     timer.start()
