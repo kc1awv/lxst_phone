@@ -1055,6 +1055,7 @@ class MainWindow(QWidget):
                 ),
             )
             self.reticulum_client.send_call_message(msg)
+            self.call_state.mark_ringing()  # Transition to RINGING state for ringback tone
             self.append_event(
                 f"Dialing {dest} (call_id={call.call_id[:8]}...). INVITE sent."
             )
@@ -1103,6 +1104,7 @@ class MainWindow(QWidget):
                 to_id=call.remote_id,
                 call_id=call.call_id,
                 media_dest=self.reticulum_client.media_dest_hash,
+                media_identity_key=self.reticulum_client.media_identity_key_b64(),
                 codec_type=codec_type,
                 codec_bitrate=codec_bitrate,
             )
