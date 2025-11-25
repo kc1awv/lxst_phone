@@ -1039,8 +1039,13 @@ class MainWindow(QWidget):
 
         try:
             call = self.call_state.start_outgoing_call(self.local_id, dest)
+            
+            # Get the remote peer's display name from peers storage
+            peer = self.peers_storage.get(dest)
+            if peer:
+                call.display_name = peer.display_name
 
-            display_name = "LXST Phone User"
+            display_name = self.config.display_name or "LXST Phone User"
             msg = build_invite(
                 from_id=self.local_id,
                 to_id=dest,
@@ -1349,6 +1354,8 @@ class MainWindow(QWidget):
             self.reject_btn.setEnabled(False)
             self.reset_btn.setEnabled(True)
             self.simulate_invite_btn.setEnabled(False)
+            
+            # Start media session if not already active (initiator case)
             if call and not self.media_active:
                 codec_type, opus_bitrate, opus_complexity, codec2_mode = (
                     self._get_codec_settings(call)
@@ -1366,6 +1373,9 @@ class MainWindow(QWidget):
                     codec2_mode=codec2_mode,
                 )
                 self.media_active = True
+            
+            # Always start the stats timer when entering IN_CALL state
+            if not self.stats_timer.isActive():
                 self.stats_timer.start()  # Start updating stats display
         elif phase == CallPhase.ENDED:
             self.ringtone_player.stop()
