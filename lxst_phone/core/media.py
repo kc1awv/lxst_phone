@@ -760,6 +760,23 @@ class MediaSession:
         elif self.active:
             logger.debug(f"Link timeout fired but link already active for call_id={self.call_info.call_id}")
 
+    def _start_link_monitor(self) -> None:
+        """Monitor link status periodically during establishment."""
+        def check_status():
+            if self.link and not self.active:
+                status = getattr(self.link, 'status', 'unknown')
+                logger.debug(f"Link status check: {status} (call_id={self.call_info.call_id})")
+                # Schedule next check in 2 seconds if still not active
+                if not self.active and self.link:
+                    timer = threading.Timer(2.0, check_status)
+                    timer.daemon = True
+                    timer.start()
+        
+        # Start first check in 2 seconds
+        timer = threading.Timer(2.0, check_status)
+        timer.daemon = True
+        timer.start()
+
     def initiate_link(self) -> None:
         """
         Initiate or prepare to accept an RNS.Link based on call role.
@@ -800,6 +817,12 @@ class MediaSession:
             )
             self.link = link
 
+            # Monitor link status
+            logger.debug(f"Link created, initial status: {getattr(link, 'status', 'unknown')}")
+            
+            # Start a periodic status monitor
+            self._start_link_monitor()
+            
             self.link_timeout = threading.Timer(30.0, self._on_link_timeout)
             self.link_timeout.daemon = True
             self.link_timeout.start()
@@ -873,9 +896,14 @@ class MediaSession:
             self.link_timeout.cancel()
             self.link_timeout = None
         
+        link_status = getattr(link, "status", "unknown") if link else "None"
+        logger.info(
+            f"Link closed for call_id={self.call_info.call_id} "
+            f"(was_active={self.active}, link_status={link_status})"
+        )
+        
         self.active = False
         self.audio.stop()
-        logger.info(f"Link closed for call_id={self.call_info.call_id}")
 
     def send_audio_frame(self, frame: bytes) -> None:
         if not self.active or not self.link:
