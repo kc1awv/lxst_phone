@@ -842,7 +842,11 @@ class MediaSession:
         """
         Wait for inbound RNS.Link requests and bind callbacks via ReticulumClient.
         """
-        logger.info("(responder) awaiting inbound RNS.Link for this call")
+        logger.info(f"(responder) awaiting inbound RNS.Link for this call")
+        logger.debug(
+            f"Responder ready: local_media_dest={self.local_media_dest}, "
+            f"expecting link from remote={self.remote_id[:16]}..."
+        )
 
     def on_incoming_link(self, link: object) -> None:
         """
