@@ -1104,7 +1104,8 @@ class MainWindow(QWidget):
                 to_id=call.remote_id,
                 call_id=call.call_id,
                 media_dest=self.reticulum_client.media_dest_hash,
-                media_identity_key=self.reticulum_client.media_identity_key_b64(),
+                # media_identity_key removed to keep packet size under MTU
+                # The caller already has our identity from the announce
                 codec_type=codec_type,
                 codec_bitrate=codec_bitrate,
             )
@@ -1465,13 +1466,20 @@ class MainWindow(QWidget):
                 local_codec, local_bitrate, remote_codec, remote_bitrate
             )
 
+            # Get remote identity key from known_peers (from their announce)
+            # instead of from the CALL_INVITE message (to keep packet size under MTU)
+            remote_identity_key = None
+            peer_info = self.reticulum_client.known_peers.get(remote_id)
+            if peer_info:
+                _, remote_identity_key = peer_info
+
             call = CallInfo(
                 call_id=msg.call_id,
                 local_id=self.local_id,
                 remote_id=remote_id,
                 display_name=msg.display_name,
                 remote_media_dest=msg.media_dest,
-                remote_identity_key=msg.media_identity_key,
+                remote_identity_key=remote_identity_key,
                 negotiated_codec_type=negotiated_codec,
                 negotiated_codec_bitrate=negotiated_bitrate,
             )
@@ -1514,10 +1522,17 @@ class MainWindow(QWidget):
                 current_call.negotiated_codec_type = negotiated_codec
                 current_call.negotiated_codec_bitrate = negotiated_bitrate
 
+            # Get remote identity key from known_peers (from their announce)
+            # instead of from the CALL_ACCEPT message (to keep packet size under MTU)
+            remote_identity_key = None
+            peer_info = self.reticulum_client.known_peers.get(msg.from_id)
+            if peer_info:
+                _, remote_identity_key = peer_info
+            
             self.call_state.mark_remote_accepted(
                 msg.call_id,
                 remote_media_dest=msg.media_dest,
-                remote_identity_key=msg.media_identity_key,
+                remote_identity_key=remote_identity_key,
             )
             self.append_event("Remote accepted the call")
             return
