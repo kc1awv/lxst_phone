@@ -704,6 +704,7 @@ class MediaSession:
         self.link: Optional[object] = None  # will be an RNS.Link
         self.active = False
         self.initiated_by_local = call_info.initiated_by_local
+        self.remote_id = call_info.remote_id
         self.remote_call_dest = call_info.remote_call_dest
         self.remote_identity_key = call_info.remote_identity_key
         self.local_call_dest: Optional[str] = getattr(
@@ -844,7 +845,7 @@ class MediaSession:
         """
         logger.info(f"(responder) awaiting inbound RNS.Link for this call")
         logger.debug(
-            f"Responder ready: local_media_dest={self.local_media_dest}, "
+            f"Responder ready: local_call_dest={self.local_call_dest}, "
             f"expecting link from remote={self.remote_id[:16]}..."
         )
 
