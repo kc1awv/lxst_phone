@@ -48,8 +48,10 @@ except ImportError:  # pragma: no cover
 
 try:
     import pycodec2  # type: ignore
+    import numpy as np  # type: ignore
 except ImportError:  # pragma: no cover
     pycodec2 = None  # type: ignore
+    np = None  # type: ignore
 
 from lxst_phone.core.call_state import CallInfo
 
@@ -104,7 +106,6 @@ class MediaManager:
         codec2_mode: int = 3200,
     ) -> None:
         """Start a new media session for the given call."""
-        # Stop any existing session first to prevent race conditions
         if self.active_session:
             logger.warning(
                 f"Stopping existing media session (call_id={self.active_call_id}) "
@@ -604,7 +605,9 @@ class AudioPipeline:
             if self.codec_type == "opus":
                 pcm = self._decoder.decode(encoded, self.frame_size)  # type: ignore[arg-type]
             else:  # codec2
-                pcm = self._decoder.decode(encoded)  # type: ignore[attr-defined]
+                encoded_array = np.frombuffer(encoded, dtype=np.uint8)  # type: ignore
+                pcm_array = self._decoder.decode(encoded_array)  # type: ignore[attr-defined]
+                pcm = pcm_array.tobytes()  # type: ignore
         except Exception as exc:
             logger.error(f"decode failed: {exc}")
             return
@@ -638,7 +641,9 @@ class AudioPipeline:
                 if self.codec_type == "opus":
                     encoded = self._encoder.encode(data_bytes, self.frame_size)  # type: ignore[arg-type]
                 else:  # codec2
-                    encoded = self._encoder.encode(data_bytes)  # type: ignore[attr-defined]
+                    pcm_array = np.frombuffer(data_bytes, dtype=np.int16)  # type: ignore
+                    encoded_array = self._encoder.encode(pcm_array)  # type: ignore[attr-defined]
+                    encoded = encoded_array.tobytes()  # type: ignore
             except Exception as exc:
                 logger.error(f"encode failed: {exc}")
                 continue
@@ -745,7 +750,6 @@ class MediaSession:
 
     def _on_link_timeout(self) -> None:
         """Handle link establishment timeout."""
-        # Clear the timeout reference
         self.link_timeout = None
         
         if not self.active and self.link:
@@ -772,13 +776,11 @@ class MediaSession:
                     return
                 
                 logger.debug(f"Link status check: {status} (call_id={self.call_info.call_id})")
-                # Schedule next check in 2 seconds if still not active and not closed
                 if not self.active and self.link and status not in (4, 'unknown'):
                     timer = threading.Timer(2.0, check_status)
                     timer.daemon = True
                     timer.start()
         
-        # Start first check in 2 seconds
         timer = threading.Timer(2.0, check_status)
         timer.daemon = True
         timer.start()
@@ -823,10 +825,8 @@ class MediaSession:
             )
             self.link = link
 
-            # Monitor link status
             logger.debug(f"Link created, initial status: {getattr(link, 'status', 'unknown')}")
-            
-            # Start a periodic status monitor
+
             self._start_link_monitor()
             
             self.link_timeout = threading.Timer(30.0, self._on_link_timeout)
@@ -875,7 +875,6 @@ class MediaSession:
         else:
             self.is_encrypted = True
 
-        # Generate SAS for verification
         if hasattr(link, "hash"):
             link_hash = link.hash  # type: ignore[attr-defined]
             self.sas_code = generate_sas(link_hash)
@@ -901,7 +900,6 @@ class MediaSession:
         self.metrics.output_level = output_level
 
     def on_link_closed(self, link: object) -> None:
-        # Cancel link timeout timer if still running
         if self.link_timeout:
             self.link_timeout.cancel()
             self.link_timeout = None
