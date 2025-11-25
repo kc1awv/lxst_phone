@@ -1039,13 +1039,18 @@ class MainWindow(QWidget):
 
         try:
             call = self.call_state.start_outgoing_call(self.local_id, dest)
+            
+            # Get the remote peer's display name from peers storage
+            peer = self.peers_storage.get(dest)
+            if peer:
+                call.display_name = peer.display_name
 
-            display_name = "LXST Phone User"
+            display_name = self.config.display_name or "LXST Phone User"
             msg = build_invite(
                 from_id=self.local_id,
                 to_id=dest,
                 display_name=display_name,
-                media_dest=self.reticulum_client.media_dest_hash,
+                call_dest=self.reticulum_client.call_dest_hash,
                 call_id=call.call_id,
                 codec_type=self.config.codec_type,
                 codec_bitrate=(
@@ -1055,6 +1060,7 @@ class MainWindow(QWidget):
                 ),
             )
             self.reticulum_client.send_call_message(msg)
+            self.call_state.mark_ringing()  # Transition to RINGING state for ringback tone
             self.append_event(
                 f"Dialing {dest} (call_id={call.call_id[:8]}...). INVITE sent."
             )
@@ -1098,11 +1104,29 @@ class MainWindow(QWidget):
             else:
                 codec_bitrate = call.negotiated_codec_bitrate or self.config.codec2_mode
 
+            if not self.media_active:
+                codec_type_full, opus_bitrate, opus_complexity, codec2_mode = (
+                    self._get_codec_settings(call)
+                )
+                media.start_media_session(
+                    call,
+                    self.reticulum_client,
+                    audio_input_device=self.audio_input_device,
+                    audio_output_device=self.audio_output_device,
+                    audio_enabled=self.audio_enabled,
+                    codec_type=codec_type_full,
+                    opus_bitrate=opus_bitrate,
+                    opus_complexity=self.config.opus_complexity,
+                    codec2_mode=codec2_mode,
+                )
+                self.media_active = True
+                logger.info("Started media session before sending CALL_ACCEPT (responder)")
+
             msg = build_accept(
                 from_id=self.local_id,
                 to_id=call.remote_id,
                 call_id=call.call_id,
-                media_dest=self.reticulum_client.media_dest_hash,
+                call_dest=self.reticulum_client.call_dest_hash,
                 codec_type=codec_type,
                 codec_bitrate=codec_bitrate,
             )
@@ -1217,14 +1241,12 @@ class MainWindow(QWidget):
     ) -> None:
         fake_remote = remote_id or f"sim-{self.local_id[-6:]}"
         call_id = new_call_id()
-        media_dest = self.reticulum_client.media_dest_hash
-        media_identity_key = self.reticulum_client.media_identity_key_b64()
+        call_dest = self.reticulum_client.call_dest_hash
+        call_identity_key = self.reticulum_client.identity_key_b64()
 
-        signaling_dest = self.reticulum_client.signaling_dest_hash
-        signaling_identity_key = self.reticulum_client.signaling_identity_key_b64()
         self.reticulum_client.known_peers[fake_remote] = (
-            signaling_dest,
-            signaling_identity_key,
+            call_dest,
+            call_identity_key,
         )
 
         msg = CallMessage(
@@ -1233,8 +1255,8 @@ class MainWindow(QWidget):
             from_id=fake_remote,
             to_id=self.local_id,
             display_name=display_name,
-            media_dest=media_dest,
-            media_identity_key=media_identity_key,
+            call_dest=call_dest,
+            call_identity_key=call_identity_key,
             timestamp=time.time(),
         )
         self.append_event(f"Simulating incoming invite from {fake_remote}")
@@ -1330,6 +1352,8 @@ class MainWindow(QWidget):
             self.reject_btn.setEnabled(False)
             self.reset_btn.setEnabled(True)
             self.simulate_invite_btn.setEnabled(False)
+            
+            # Start media session if not already active (initiator case)
             if call and not self.media_active:
                 codec_type, opus_bitrate, opus_complexity, codec2_mode = (
                     self._get_codec_settings(call)
@@ -1347,6 +1371,9 @@ class MainWindow(QWidget):
                     codec2_mode=codec2_mode,
                 )
                 self.media_active = True
+            
+            # Always start the stats timer when entering IN_CALL state
+            if not self.stats_timer.isActive():
                 self.stats_timer.start()  # Start updating stats display
         elif phase == CallPhase.ENDED:
             self.ringtone_player.stop()
@@ -1463,13 +1490,20 @@ class MainWindow(QWidget):
                 local_codec, local_bitrate, remote_codec, remote_bitrate
             )
 
+            # Get remote identity key from known_peers (from their announce)
+            # instead of from the CALL_INVITE message (to keep packet size under MTU)
+            remote_identity_key = None
+            peer_info = self.reticulum_client.known_peers.get(remote_id)
+            if peer_info:
+                _, remote_identity_key = peer_info
+
             call = CallInfo(
                 call_id=msg.call_id,
                 local_id=self.local_id,
                 remote_id=remote_id,
                 display_name=msg.display_name,
-                remote_media_dest=msg.media_dest,
-                remote_identity_key=msg.media_identity_key,
+                remote_call_dest=msg.call_dest,
+                remote_identity_key=remote_identity_key,
                 negotiated_codec_type=negotiated_codec,
                 negotiated_codec_bitrate=negotiated_bitrate,
             )
@@ -1512,10 +1546,22 @@ class MainWindow(QWidget):
                 current_call.negotiated_codec_type = negotiated_codec
                 current_call.negotiated_codec_bitrate = negotiated_bitrate
 
+            # Get remote identity key from known_peers (from their announce)
+            # instead of from the CALL_ACCEPT message (to keep packet size under MTU)
+            remote_identity_key = None
+            peer_info = self.reticulum_client.known_peers.get(msg.from_id)
+            if peer_info:
+                _, remote_identity_key = peer_info
+            
+            logger.debug(
+                f"CALL_ACCEPT: call_dest={msg.call_dest}, "
+                f"remote_identity_key={'present' if remote_identity_key else 'MISSING'}"
+            )
+            
             self.call_state.mark_remote_accepted(
                 msg.call_id,
-                remote_media_dest=msg.media_dest,
-                remote_identity_key=msg.media_identity_key,
+                remote_call_dest=msg.call_dest,
+                remote_identity_key=remote_identity_key,
             )
             self.append_event("Remote accepted the call")
             return

@@ -21,7 +21,7 @@ class CallInfo:
     remote_id: str
     display_name: Optional[str] = None
     initiated_by_local: bool = False
-    remote_media_dest: Optional[str] = None
+    remote_call_dest: Optional[str] = None
     remote_identity_key: Optional[str] = None
     negotiated_codec_type: Optional[str] = None
     negotiated_codec_bitrate: Optional[int] = None
@@ -91,13 +91,13 @@ class CallStateMachine:
     def mark_remote_accepted(
         self,
         call_id: str,
-        remote_media_dest: Optional[str] = None,
+        remote_call_dest: Optional[str] = None,
         remote_identity_key: Optional[str] = None,
     ) -> None:
         if not self.current_call or self.current_call.call_id != call_id:
             return
-        if remote_media_dest:
-            self.current_call.remote_media_dest = remote_media_dest
+        if remote_call_dest:
+            self.current_call.remote_call_dest = remote_call_dest
         if remote_identity_key:
             self.current_call.remote_identity_key = remote_identity_key
         self._set_state(CallPhase.IN_CALL)

@@ -104,6 +104,14 @@ class MediaManager:
         codec2_mode: int = 3200,
     ) -> None:
         """Start a new media session for the given call."""
+        # Stop any existing session first to prevent race conditions
+        if self.active_session:
+            logger.warning(
+                f"Stopping existing media session (call_id={self.active_call_id}) "
+                f"before starting new one (call_id={call_info.call_id})"
+            )
+            self.stop_session()
+        
         self.active_call_id = call_info.call_id
         self.reticulum_client = reticulum_client
         self.active_session = MediaSession(
@@ -696,10 +704,11 @@ class MediaSession:
         self.link: Optional[object] = None  # will be an RNS.Link
         self.active = False
         self.initiated_by_local = call_info.initiated_by_local
-        self.remote_media_dest = call_info.remote_media_dest
+        self.remote_id = call_info.remote_id
+        self.remote_call_dest = call_info.remote_call_dest
         self.remote_identity_key = call_info.remote_identity_key
-        self.local_media_dest: Optional[str] = getattr(
-            reticulum_client, "media_dest_hash", None
+        self.local_call_dest: Optional[str] = getattr(
+            reticulum_client, "call_dest_hash", None
         )
         self.jitter = JitterBuffer()
         self.audio_enabled = audio_enabled
@@ -736,6 +745,9 @@ class MediaSession:
 
     def _on_link_timeout(self) -> None:
         """Handle link establishment timeout."""
+        # Clear the timeout reference
+        self.link_timeout = None
+        
         if not self.active and self.link:
             logger.warning(
                 f"Link establishment timeout for call_id={self.call_info.call_id}"
@@ -746,6 +758,30 @@ class MediaSession:
             except Exception as exc:
                 logger.error(f"Error tearing down timed-out link: {exc}")
             self.link = None
+        elif self.active:
+            logger.debug(f"Link timeout fired but link already active for call_id={self.call_info.call_id}")
+
+    def _start_link_monitor(self) -> None:
+        """Monitor link status periodically during establishment."""
+        def check_status():
+            if self.link and not self.active:
+                status = getattr(self.link, 'status', 'unknown')
+                # Status codes: 0=PENDING, 1=HANDSHAKE, 2=ACTIVE, 3=STALE, 4=CLOSED
+                if status == 4:  # CLOSED - stop monitoring
+                    logger.debug(f"Link monitor: link closed before establishing (call_id={self.call_info.call_id})")
+                    return
+                
+                logger.debug(f"Link status check: {status} (call_id={self.call_info.call_id})")
+                # Schedule next check in 2 seconds if still not active and not closed
+                if not self.active and self.link and status not in (4, 'unknown'):
+                    timer = threading.Timer(2.0, check_status)
+                    timer.daemon = True
+                    timer.start()
+        
+        # Start first check in 2 seconds
+        timer = threading.Timer(2.0, check_status)
+        timer.daemon = True
+        timer.start()
 
     def initiate_link(self) -> None:
         """
@@ -760,21 +796,39 @@ class MediaSession:
         """
         Create an outbound RNS.Link to the callee's media destination.
         """
-        if not self.remote_media_dest:
-            logger.error("Cannot initiate link: remote media dest missing")
+        if not self.remote_call_dest:
+            logger.error("Cannot initiate link: remote call dest missing")
             return
+        if not self.remote_identity_key:
+            logger.error(
+                f"Cannot initiate link: remote identity key missing for {self.remote_id[:16]}... "
+                f"Peer may not have announced their presence yet."
+            )
+            return
+        
+        logger.debug(
+            f"Initiator handshake: remote_call_dest={self.remote_call_dest}, "
+            f"remote_identity_key={self.remote_identity_key[:32] if self.remote_identity_key else 'None'}..."
+        )
+        
         try:
             link = self.reticulum_client.create_media_link(
-                remote_media_dest=self.remote_media_dest,
+                remote_call_dest=self.remote_call_dest,
                 remote_identity_key_b64=self.remote_identity_key,
                 on_established=self.on_link_established,
                 on_closed=self.on_link_closed,
             )
             logger.info(
-                f"(initiator) outbound link attempt to {self.remote_media_dest}"
+                f"(initiator) outbound link attempt to {self.remote_call_dest}"
             )
             self.link = link
 
+            # Monitor link status
+            logger.debug(f"Link created, initial status: {getattr(link, 'status', 'unknown')}")
+            
+            # Start a periodic status monitor
+            self._start_link_monitor()
+            
             self.link_timeout = threading.Timer(30.0, self._on_link_timeout)
             self.link_timeout.daemon = True
             self.link_timeout.start()
@@ -789,7 +843,11 @@ class MediaSession:
         """
         Wait for inbound RNS.Link requests and bind callbacks via ReticulumClient.
         """
-        logger.info("(responder) awaiting inbound RNS.Link for this call")
+        logger.info(f"(responder) awaiting inbound RNS.Link for this call")
+        logger.debug(
+            f"Responder ready: local_call_dest={self.local_call_dest}, "
+            f"expecting link from remote={self.remote_id[:16]}..."
+        )
 
     def on_incoming_link(self, link: object) -> None:
         """
@@ -843,9 +901,19 @@ class MediaSession:
         self.metrics.output_level = output_level
 
     def on_link_closed(self, link: object) -> None:
+        # Cancel link timeout timer if still running
+        if self.link_timeout:
+            self.link_timeout.cancel()
+            self.link_timeout = None
+        
+        link_status = getattr(link, "status", "unknown") if link else "None"
+        logger.info(
+            f"Link closed for call_id={self.call_info.call_id} "
+            f"(was_active={self.active}, link_status={link_status})"
+        )
+        
         self.active = False
         self.audio.stop()
-        logger.info(f"Link closed for call_id={self.call_info.call_id}")
 
     def send_audio_frame(self, frame: bytes) -> None:
         if not self.active or not self.link:
