@@ -23,8 +23,6 @@ class AnnounceHandler:
     
     def __init__(self, reticulum_client: 'ReticulumClient'):
         self.reticulum_client = reticulum_client
-        # Set aspect_filter to None to receive all announces, then filter in received_announce
-        # Alternatively, set to "lxst_phone.signaling" to only get matching aspects
         self.aspect_filter = None  # Receive all announces and filter ourselves
     
     def received_announce(self, destination_hash: bytes, announced_identity: bytes, app_data: bytes) -> None:
@@ -39,15 +37,11 @@ class AnnounceHandler:
         try:
             logger.debug(f"Announce received! dest_hash={destination_hash.hex()[:16]}... app_data_len={len(app_data) if app_data else 0}")
             
-            # announced_identity can be either an RNS.Identity object or bytes (public key)
-            # Handle both cases
             if isinstance(announced_identity, RNS.Identity):
-                # It's already an Identity object
                 identity_obj = announced_identity
                 node_id = identity_obj.hash.hex()
                 identity_pub_key = identity_obj.get_public_key()
             else:
-                # It's bytes (public key), need to reconstruct Identity
                 try:
                     identity_obj = RNS.Identity(create_keys=False)
                     identity_obj.load_public_key(announced_identity)
@@ -55,39 +49,33 @@ class AnnounceHandler:
                     identity_pub_key = announced_identity
                 except Exception as e:
                     logger.error(f"Could not load identity from public key: {e}")
-                    # Fallback: use destination hash as identifier
                     node_id = destination_hash.hex()
                     identity_pub_key = announced_identity if isinstance(announced_identity, bytes) else None
             
             dest_hash_hex = destination_hash.hex()
-            
-            # Parse app_data to get display name
+
             display_name = ""
             is_lxst_phone = False
             if app_data:
                 try:
                     data = json.loads(app_data.decode('utf-8'))
                     logger.debug(f"Parsed app_data: {data}")
-                    
-                    # Check if this is an LXST Phone announce
+
                     if data.get('app') == 'lxst_phone' and data.get('type') == 'signaling':
                         is_lxst_phone = True
                         display_name = data.get('display_name', '')
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     logger.debug(f"Could not parse app_data as JSON")
                     pass
-            
-            # Ignore non-LXST Phone announces
+
             if not is_lxst_phone:
                 logger.debug(f"Ignoring non-LXST Phone announce from {dest_hash_hex[:16]}...")
                 return
-            
-            # Don't process our own announces
+
             if node_id == self.reticulum_client.node_id:
                 logger.debug(f"Ignoring our own announce")
                 return
-            
-            # Store peer info - need public key as base64
+
             if identity_pub_key:
                 identity_key_b64 = base64.b64encode(identity_pub_key).decode('ascii')
             else:
@@ -101,8 +89,7 @@ class AnnounceHandler:
                 f"({display_name or 'unnamed'}) "
                 f"signaling={dest_hash_hex[:16]}..."
             )
-            
-            # Notify app layer if callback is set
+
             if self.reticulum_client.on_message:
                 from lxst_phone.core.signaling import CallMessage
                 msg = CallMessage(
@@ -206,7 +193,6 @@ class ReticulumClient:
         except Exception as exc:
             logger.error(f"Failed to announce media destination: {exc}")
 
-        # Set up announce handler to discover other peers
         self.announce_handler = AnnounceHandler(self)
         RNS.Transport.register_announce_handler(self.announce_handler)
         logger.info("Registered announce handler for peer discovery")
@@ -365,8 +351,7 @@ class ReticulumClient:
         if not self.signaling_dest:
             logger.error("Cannot announce: signaling destination not initialized")
             return
-        
-        # Create app_data with our protocol marker and display name
+
         app_data = {
             'app': 'lxst_phone',
             'type': 'signaling',
@@ -391,6 +376,13 @@ class ReticulumClient:
                 self.on_media_link(link)
             except Exception as exc:
                 logger.error(f"Error in on_media_link handler: {exc}")
+        else:
+            logger.warning("Inbound media link received but no on_media_link handler registered! Closing link.")
+            try:
+                if hasattr(link, "teardown"):
+                    link.teardown()
+            except Exception as exc:
+                logger.error(f"Error tearing down unhandled link: {exc}")
 
     def _export_identity_public_key(self) -> Optional[str]:
         """Export the node identity's public key as base64."""

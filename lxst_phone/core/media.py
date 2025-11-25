@@ -763,6 +763,12 @@ class MediaSession:
         if not self.remote_media_dest:
             logger.error("Cannot initiate link: remote media dest missing")
             return
+        if not self.remote_identity_key:
+            logger.error(
+                f"Cannot initiate link: remote identity key missing for {self.remote_id[:16]}... "
+                f"Peer may not have announced their presence yet."
+            )
+            return
         try:
             link = self.reticulum_client.create_media_link(
                 remote_media_dest=self.remote_media_dest,

@@ -1099,13 +1099,29 @@ class MainWindow(QWidget):
             else:
                 codec_bitrate = call.negotiated_codec_bitrate or self.config.codec2_mode
 
+            if not self.media_active:
+                codec_type_full, opus_bitrate, opus_complexity, codec2_mode = (
+                    self._get_codec_settings(call)
+                )
+                media.start_media_session(
+                    call,
+                    self.reticulum_client,
+                    audio_input_device=self.audio_input_device,
+                    audio_output_device=self.audio_output_device,
+                    audio_enabled=self.audio_enabled,
+                    codec_type=codec_type_full,
+                    opus_bitrate=opus_bitrate,
+                    opus_complexity=self.config.opus_complexity,
+                    codec2_mode=codec2_mode,
+                )
+                self.media_active = True
+                logger.info("Started media session before sending CALL_ACCEPT (responder)")
+
             msg = build_accept(
                 from_id=self.local_id,
                 to_id=call.remote_id,
                 call_id=call.call_id,
                 media_dest=self.reticulum_client.media_dest_hash,
-                # media_identity_key removed to keep packet size under MTU
-                # The caller already has our identity from the announce
                 codec_type=codec_type,
                 codec_bitrate=codec_bitrate,
             )
