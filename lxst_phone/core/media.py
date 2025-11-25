@@ -605,8 +605,8 @@ class AudioPipeline:
             if self.codec_type == "opus":
                 pcm = self._decoder.decode(encoded, self.frame_size)  # type: ignore[arg-type]
             else:  # codec2
-                encoded_array = np.frombuffer(encoded, dtype=np.uint8)  # type: ignore
-                pcm_array = self._decoder.decode(encoded_array)  # type: ignore[attr-defined]
+                # codec2 decode takes bytes and returns numpy int16 array
+                pcm_array = self._decoder.decode(encoded)  # type: ignore[attr-defined]
                 pcm = pcm_array.tobytes()  # type: ignore
         except Exception as exc:
             logger.error(f"decode failed: {exc}")
@@ -642,8 +642,7 @@ class AudioPipeline:
                     encoded = self._encoder.encode(data_bytes, self.frame_size)  # type: ignore[arg-type]
                 else:  # codec2
                     pcm_array = np.frombuffer(data_bytes, dtype=np.int16)  # type: ignore
-                    encoded_array = self._encoder.encode(pcm_array)  # type: ignore[attr-defined]
-                    encoded = encoded_array.tobytes()  # type: ignore
+                    encoded = self._encoder.encode(pcm_array)  # type: ignore[attr-defined]
             except Exception as exc:
                 logger.error(f"encode failed: {exc}")
                 continue
