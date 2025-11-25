@@ -1050,7 +1050,7 @@ class MainWindow(QWidget):
                 from_id=self.local_id,
                 to_id=dest,
                 display_name=display_name,
-                media_dest=self.reticulum_client.media_dest_hash,
+                call_dest=self.reticulum_client.call_dest_hash,
                 call_id=call.call_id,
                 codec_type=self.config.codec_type,
                 codec_bitrate=(
@@ -1126,7 +1126,7 @@ class MainWindow(QWidget):
                 from_id=self.local_id,
                 to_id=call.remote_id,
                 call_id=call.call_id,
-                media_dest=self.reticulum_client.media_dest_hash,
+                call_dest=self.reticulum_client.call_dest_hash,
                 codec_type=codec_type,
                 codec_bitrate=codec_bitrate,
             )
@@ -1241,14 +1241,12 @@ class MainWindow(QWidget):
     ) -> None:
         fake_remote = remote_id or f"sim-{self.local_id[-6:]}"
         call_id = new_call_id()
-        media_dest = self.reticulum_client.media_dest_hash
-        media_identity_key = self.reticulum_client.media_identity_key_b64()
+        call_dest = self.reticulum_client.call_dest_hash
+        call_identity_key = self.reticulum_client.identity_key_b64()
 
-        signaling_dest = self.reticulum_client.signaling_dest_hash
-        signaling_identity_key = self.reticulum_client.signaling_identity_key_b64()
         self.reticulum_client.known_peers[fake_remote] = (
-            signaling_dest,
-            signaling_identity_key,
+            call_dest,
+            call_identity_key,
         )
 
         msg = CallMessage(
@@ -1257,8 +1255,8 @@ class MainWindow(QWidget):
             from_id=fake_remote,
             to_id=self.local_id,
             display_name=display_name,
-            media_dest=media_dest,
-            media_identity_key=media_identity_key,
+            call_dest=call_dest,
+            call_identity_key=call_identity_key,
             timestamp=time.time(),
         )
         self.append_event(f"Simulating incoming invite from {fake_remote}")
@@ -1504,7 +1502,7 @@ class MainWindow(QWidget):
                 local_id=self.local_id,
                 remote_id=remote_id,
                 display_name=msg.display_name,
-                remote_media_dest=msg.media_dest,
+                remote_call_dest=msg.call_dest,
                 remote_identity_key=remote_identity_key,
                 negotiated_codec_type=negotiated_codec,
                 negotiated_codec_bitrate=negotiated_bitrate,
@@ -1556,13 +1554,13 @@ class MainWindow(QWidget):
                 _, remote_identity_key = peer_info
             
             logger.debug(
-                f"CALL_ACCEPT: media_dest={msg.media_dest}, "
+                f"CALL_ACCEPT: call_dest={msg.call_dest}, "
                 f"remote_identity_key={'present' if remote_identity_key else 'MISSING'}"
             )
             
             self.call_state.mark_remote_accepted(
                 msg.call_id,
-                remote_media_dest=msg.media_dest,
+                remote_call_dest=msg.call_dest,
                 remote_identity_key=remote_identity_key,
             )
             self.append_event("Remote accepted the call")

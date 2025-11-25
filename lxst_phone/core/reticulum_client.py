@@ -60,7 +60,7 @@ class AnnounceHandler:
                     data = json.loads(app_data.decode('utf-8'))
                     logger.debug(f"Parsed app_data: {data}")
 
-                    if data.get('app') == 'lxst_phone' and data.get('type') == 'signaling':
+                    if data.get('app') == 'lxst_phone':
                         is_lxst_phone = True
                         display_name = data.get('display_name', '')
                 except (json.JSONDecodeError, UnicodeDecodeError):
@@ -92,7 +92,7 @@ class AnnounceHandler:
             logger.info(
                 f"Discovered peer via announce: {node_id[:16]}... "
                 f"({display_name or 'unnamed'}) "
-                f"signaling={dest_hash_hex[:16]}..."
+                f"call_dest={dest_hash_hex[:16]}..."
             )
 
             if self.reticulum_client.on_message:
@@ -103,8 +103,8 @@ class AnnounceHandler:
                     from_id=node_id,
                     to_id="",
                     display_name=display_name,
-                    media_dest=dest_hash_hex,
-                    media_identity_key=identity_key_b64,
+                    call_dest=dest_hash_hex,
+                    call_identity_key=identity_key_b64,
                     timestamp=time.time(),
                 )
                 self.reticulum_client.on_message(msg)
@@ -150,9 +150,7 @@ class ReticulumClient:
         self.node_identity: Optional[RNS.Identity] = None
         self.node_id: str = "<uninitialised>"
 
-        self.signaling_dest: Optional[RNS.Destination] = None
-
-        self.media_dest: Optional[RNS.Destination] = None
+        self.call_dest: Optional[RNS.Destination] = None
 
         self.known_peers: dict[str, tuple[str, str]] = {}
 
@@ -169,67 +167,43 @@ class ReticulumClient:
             identity_path=self.identity_path, force_new=self.force_new_identity
         )
         self.node_id = self.node_identity.hash.hex()
-        self.signaling_dest = RNS.Destination(
+        self.call_dest = RNS.Destination(
             self.node_identity,
             RNS.Destination.IN,
             RNS.Destination.SINGLE,
             self.app_name,
-            "signaling",
+            "call",
         )
-        self.signaling_dest.set_packet_callback(self._signaling_packet_callback)
-        logger.info(
-            f"Created SINGLE signaling destination: {RNS.prettyhexrep(self.signaling_dest.hash)}"
-        )
-
-        self.media_dest = RNS.Destination(
-            self.node_identity,
-            RNS.Destination.IN,
-            RNS.Destination.SINGLE,
-            self.app_name,
-            "media",
-        )
-        if hasattr(self.media_dest, "set_link_established_callback"):
-            self.media_dest.set_link_established_callback(
+        self.call_dest.set_packet_callback(self._signaling_packet_callback)
+        if hasattr(self.call_dest, "set_link_established_callback"):
+            self.call_dest.set_link_established_callback(
                 self._on_media_link_established
             )
-        try:
-            self.media_dest.announce()
-            logger.info("Announced media destination")
-        except Exception as exc:
-            logger.error(f"Failed to announce media destination: {exc}")
+        logger.info(
+            f"Created SINGLE call destination: {RNS.prettyhexrep(self.call_dest.hash)}"
+        )
 
         self.announce_handler = AnnounceHandler(self)
         RNS.Transport.register_announce_handler(self.announce_handler)
         logger.info("Registered announce handler for peer discovery")
 
         logger.info(
-            f"Signaling ready. "
+            f"Call destination ready. "
             f"node_id={self.node_id}, "
-            f"signaling={RNS.prettyhexrep(self.signaling_dest.hash)}, "
-            f"media={RNS.prettyhexrep(self.media_dest.hash)}"
+            f"call_dest={RNS.prettyhexrep(self.call_dest.hash)}"
         )
 
     def stop(self) -> None:
         logger.info("Stopping ReticulumClient")
 
     @property
-    def media_dest_hash(self) -> str:
-        if not self.media_dest:
-            raise RuntimeError("Media destination not initialised")
-        return self.media_dest.hash.hex()
+    def call_dest_hash(self) -> str:
+        if not self.call_dest:
+            raise RuntimeError("Call destination not initialised")
+        return self.call_dest.hash.hex()
 
-    @property
-    def signaling_dest_hash(self) -> str:
-        if not self.signaling_dest:
-            raise RuntimeError("Signaling destination not initialised")
-        return self.signaling_dest.hash.hex()
-
-    def media_identity_key_b64(self) -> Optional[str]:
-        """Export media identity public key (for media Links)."""
-        return self._export_identity_public_key()
-
-    def signaling_identity_key_b64(self) -> Optional[str]:
-        """Export signaling identity public key (same as media, different dest)."""
+    def identity_key_b64(self) -> Optional[str]:
+        """Export identity public key."""
         return self._export_identity_public_key()
 
     def _old_discovery_packet_callback(self, data: bytes, packet: RNS.Packet) -> None:
@@ -245,14 +219,14 @@ class ReticulumClient:
             msg = CallMessage.from_payload(payload)
 
             if msg.msg_type == "PRESENCE_ANNOUNCE":
-                if msg.media_dest and msg.media_identity_key:
+                if msg.call_dest and msg.call_identity_key:
                     self.known_peers[msg.from_id] = (
-                        msg.media_dest,
-                        msg.media_identity_key,
+                        msg.call_dest,
+                        msg.call_identity_key,
                     )
                     logger.info(
                         f"Discovered peer {msg.from_id[:16]}... "
-                        f"signaling_dest={msg.media_dest[:16]}..."
+                        f"call_dest={msg.call_dest[:16]}..."
                     )
 
                 if self.on_message:
@@ -291,7 +265,7 @@ class ReticulumClient:
 
     def send_call_message(self, msg: CallMessage) -> None:
         """
-        Send a call signaling message to a specific peer's SINGLE signaling destination.
+        Send a call signaling message to a specific peer's SINGLE call destination.
         Note: PRESENCE_ANNOUNCE is no longer sent via this method - use send_presence_announce() instead.
         """
         if not self.reticulum:
@@ -303,38 +277,38 @@ class ReticulumClient:
         peer_info = self.known_peers.get(msg.to_id)
         if not peer_info:
             raise RuntimeError(
-                f"Unknown peer {msg.to_id[:16]}... - no signaling destination. "
+                f"Unknown peer {msg.to_id[:16]}... - no call destination. "
                 "Ensure peer has announced presence first."
             )
 
         payload_bytes = json.dumps(msg.to_payload()).encode("utf-8")
 
-        signaling_dest_hash, signaling_identity_key = peer_info
+        call_dest_hash, call_identity_key = peer_info
 
         try:
-            pub_key_bytes = base64.b64decode(signaling_identity_key)
+            pub_key_bytes = base64.b64decode(call_identity_key)
             remote_identity = RNS.Identity(create_keys=False)
             remote_identity.load_public_key(pub_key_bytes)
 
-            remote_signaling_dest = RNS.Destination(
+            remote_call_dest = RNS.Destination(
                 remote_identity,
                 RNS.Destination.OUT,
                 RNS.Destination.SINGLE,
                 self.app_name,
-                "signaling",
+                "call",
             )
 
-            if remote_signaling_dest.hash.hex() != signaling_dest_hash:
+            if remote_call_dest.hash.hex() != call_dest_hash:
                 logger.warning(
-                    f"Reconstructed signaling dest {remote_signaling_dest.hash.hex()} "
-                    f"!= expected {signaling_dest_hash}"
+                    f"Reconstructed call dest {remote_call_dest.hash.hex()} "
+                    f"!= expected {call_dest_hash}"
                 )
         except Exception as exc:
             raise RuntimeError(
-                f"Failed to reconstruct remote signaling destination: {exc}"
+                f"Failed to reconstruct remote call destination: {exc}"
             ) from exc
 
-        packet = RNS.Packet(remote_signaling_dest, payload_bytes)
+        packet = RNS.Packet(remote_call_dest, payload_bytes)
         try:
             send_ok = packet.send()
         except Exception as exc:
@@ -345,34 +319,33 @@ class ReticulumClient:
 
         logger.info(
             f"Sent {msg.msg_type} to {msg.to_id[:16]}... "
-            f"via SINGLE dest {signaling_dest_hash[:16]}... ({len(payload_bytes)} bytes)"
+            f"via SINGLE dest {call_dest_hash[:16]}... ({len(payload_bytes)} bytes)"
         )
 
     def send_presence_announce(self, display_name: str | None = None) -> None:
         """
-        Announce our signaling destination to the network.
+        Announce our call destination to the network.
         Uses Reticulum's built-in announce mechanism which propagates across all interfaces.
         """
-        if not self.signaling_dest:
-            logger.error("Cannot announce: signaling destination not initialized")
+        if not self.call_dest:
+            logger.error("Cannot announce: call destination not initialized")
             return
 
         app_data = {
             'app': 'lxst_phone',
-            'type': 'signaling',
             'display_name': display_name or '',
         }
         app_data_bytes = json.dumps(app_data).encode('utf-8')
         
         try:
-            self.signaling_dest.announce(app_data=app_data_bytes)
+            self.call_dest.announce(app_data=app_data_bytes)
             logger.info(
-                f"Announced signaling destination "
+                f"Announced call destination "
                 f"({display_name or 'no display name'}) "
-                f"hash={RNS.prettyhexrep(self.signaling_dest.hash)}"
+                f"hash={RNS.prettyhexrep(self.call_dest.hash)}"
             )
         except Exception as exc:
-            logger.error(f"Failed to announce signaling destination: {exc}")
+            logger.error(f"Failed to announce call destination: {exc}")
 
     def _on_media_link_established(self, link: RNS.Link) -> None:
         logger.info(f"Inbound media link established: {link.hash.hex() if hasattr(link, 'hash') else link}")
@@ -405,16 +378,16 @@ class ReticulumClient:
 
     def create_media_link(
         self,
-        remote_media_dest: str,
+        remote_call_dest: str,
         remote_identity_key_b64: Optional[str] = None,
         on_established: Optional[Callable[[RNS.Link], None]] = None,
         on_closed: Optional[Callable[[RNS.Link], None]] = None,
     ) -> RNS.Link:
         """
-        Initiate an outbound RNS.Link to the remote media destination.
+        Initiate an outbound RNS.Link to the remote call destination.
 
         Args:
-            remote_media_dest: Hex-encoded destination hash (for verification)
+            remote_call_dest: Hex-encoded destination hash (for verification)
             remote_identity_key_b64: Base64-encoded public key of remote identity
             on_established: Callback when link is established
             on_closed: Callback when link is closed
@@ -439,14 +412,14 @@ class ReticulumClient:
                 RNS.Destination.OUT,
                 RNS.Destination.SINGLE,
                 self.app_name,
-                "media",
+                "call",
             )
             logger.debug(f"Created remote destination: {remote_dest.hash.hex()}")
 
-            if remote_media_dest and remote_dest.hash.hex() != remote_media_dest:
+            if remote_call_dest and remote_dest.hash.hex() != remote_call_dest:
                 logger.warning(
                     f"Reconstructed dest hash {remote_dest.hash.hex()} "
-                    f"!= expected {remote_media_dest}"
+                    f"!= expected {remote_call_dest}"
                 )
         except Exception as exc:
             raise RuntimeError(f"Failed to create remote destination: {exc}") from exc

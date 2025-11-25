@@ -704,10 +704,10 @@ class MediaSession:
         self.link: Optional[object] = None  # will be an RNS.Link
         self.active = False
         self.initiated_by_local = call_info.initiated_by_local
-        self.remote_media_dest = call_info.remote_media_dest
+        self.remote_call_dest = call_info.remote_call_dest
         self.remote_identity_key = call_info.remote_identity_key
-        self.local_media_dest: Optional[str] = getattr(
-            reticulum_client, "media_dest_hash", None
+        self.local_call_dest: Optional[str] = getattr(
+            reticulum_client, "call_dest_hash", None
         )
         self.jitter = JitterBuffer()
         self.audio_enabled = audio_enabled
@@ -795,8 +795,8 @@ class MediaSession:
         """
         Create an outbound RNS.Link to the callee's media destination.
         """
-        if not self.remote_media_dest:
-            logger.error("Cannot initiate link: remote media dest missing")
+        if not self.remote_call_dest:
+            logger.error("Cannot initiate link: remote call dest missing")
             return
         if not self.remote_identity_key:
             logger.error(
@@ -806,19 +806,19 @@ class MediaSession:
             return
         
         logger.debug(
-            f"Initiator handshake: remote_media_dest={self.remote_media_dest}, "
+            f"Initiator handshake: remote_call_dest={self.remote_call_dest}, "
             f"remote_identity_key={self.remote_identity_key[:32] if self.remote_identity_key else 'None'}..."
         )
         
         try:
             link = self.reticulum_client.create_media_link(
-                remote_media_dest=self.remote_media_dest,
+                remote_call_dest=self.remote_call_dest,
                 remote_identity_key_b64=self.remote_identity_key,
                 on_established=self.on_link_established,
                 on_closed=self.on_link_closed,
             )
             logger.info(
-                f"(initiator) outbound link attempt to {self.remote_media_dest}"
+                f"(initiator) outbound link attempt to {self.remote_call_dest}"
             )
             self.link = link
 

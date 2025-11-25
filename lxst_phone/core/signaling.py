@@ -22,8 +22,8 @@ class CallMessage:
     from_id: str
     to_id: str
     display_name: str | None = None
-    media_dest: str | None = None
-    media_identity_key: str | None = None
+    call_dest: str | None = None
+    call_identity_key: str | None = None
     codec_type: str | None = None  # "opus" or "codec2"
     codec_bitrate: int | None = None  # Normalized bitrate in bps
     timestamp: float = 0.0
@@ -38,10 +38,10 @@ class CallMessage:
 
         if self.display_name:
             payload["display_name"] = self.display_name
-        if self.media_dest:
-            payload["media_dest"] = self.media_dest
-        if self.media_identity_key:
-            payload["media_identity_key"] = self.media_identity_key
+        if self.call_dest:
+            payload["call_dest"] = self.call_dest
+        if self.call_identity_key:
+            payload["call_identity_key"] = self.call_identity_key
         if self.codec_type:
             payload["codec_type"] = self.codec_type
         if self.codec_bitrate is not None:
@@ -53,14 +53,18 @@ class CallMessage:
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "CallMessage":
+        # Support both old media_dest and new call_dest naming for backwards compatibility
+        call_dest = payload.get("call_dest") or payload.get("media_dest")
+        call_identity_key = payload.get("call_identity_key") or payload.get("media_identity_key")
+        
         return cls(
             msg_type=payload["type"],
             call_id=payload["call_id"],
             from_id=payload["from"],
             to_id=payload["to"],
             display_name=payload.get("display_name"),
-            media_dest=payload.get("media_dest"),
-            media_identity_key=payload.get("media_identity_key"),
+            call_dest=call_dest,
+            call_identity_key=call_identity_key,
             codec_type=payload.get("codec_type"),
             codec_bitrate=payload.get("codec_bitrate"),
             timestamp=payload.get("timestamp", 0.0),
@@ -125,8 +129,8 @@ def build_invite(
     from_id: str,
     to_id: str,
     display_name: str | None = None,
-    media_dest: str | None = None,
-    media_identity_key: str | None = None,
+    call_dest: str | None = None,
+    call_identity_key: str | None = None,
     codec_type: str | None = None,
     codec_bitrate: int | None = None,
     call_id: Optional[str] = None,
@@ -137,8 +141,8 @@ def build_invite(
         from_id=from_id,
         to_id=to_id,
         display_name=display_name,
-        media_dest=media_dest,
-        media_identity_key=media_identity_key,
+        call_dest=call_dest,
+        call_identity_key=call_identity_key,
         codec_type=codec_type,
         codec_bitrate=codec_bitrate,
         timestamp=time.time(),
@@ -149,8 +153,8 @@ def build_accept(
     from_id: str,
     to_id: str,
     call_id: str,
-    media_dest: str | None = None,
-    media_identity_key: str | None = None,
+    call_dest: str | None = None,
+    call_identity_key: str | None = None,
     codec_type: str | None = None,
     codec_bitrate: int | None = None,
 ) -> CallMessage:
@@ -159,8 +163,8 @@ def build_accept(
         call_id=call_id,
         from_id=from_id,
         to_id=to_id,
-        media_dest=media_dest,
-        media_identity_key=media_identity_key,
+        call_dest=call_dest,
+        call_identity_key=call_identity_key,
         codec_type=codec_type,
         codec_bitrate=codec_bitrate,
         timestamp=time.time(),
@@ -190,17 +194,17 @@ def build_end(from_id: str, to_id: str, call_id: str) -> CallMessage:
 def build_announce(
     from_id: str,
     display_name: str | None = None,
-    signaling_dest: str | None = None,
-    signaling_identity_key: str | None = None,
+    call_dest: str | None = None,
+    call_identity_key: str | None = None,
 ) -> CallMessage:
-    """Build a presence announcement for discovery (broadcast on PLAIN)."""
+    """Build a presence announcement for discovery."""
     return CallMessage(
         msg_type="PRESENCE_ANNOUNCE",
         call_id="",  # Not call-specific
         from_id=from_id,
         to_id="",  # Broadcast to all
         display_name=display_name,
-        media_dest=signaling_dest,  # Reuse this field for signaling dest
-        media_identity_key=signaling_identity_key,  # Reuse for signaling identity
+        call_dest=call_dest,
+        call_identity_key=call_identity_key,
         timestamp=time.time(),
     )
