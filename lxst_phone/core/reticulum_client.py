@@ -35,8 +35,7 @@ class AnnounceHandler:
             app_data: Application data included in the announce
         """
         try:
-            logger.debug(f"Announce received! dest_hash={destination_hash.hex()[:16]}... app_data_len={len(app_data) if app_data else 0}")
-            
+            # Parse identity first to determine if this is LXST Phone
             if isinstance(announced_identity, RNS.Identity):
                 identity_obj = announced_identity
                 node_id = identity_obj.hash.hex()
@@ -65,12 +64,18 @@ class AnnounceHandler:
                         is_lxst_phone = True
                         display_name = data.get('display_name', '')
                 except (json.JSONDecodeError, UnicodeDecodeError):
-                    logger.debug(f"Could not parse app_data as JSON")
+                    # Non-LXST Phone announce, silently ignore
                     pass
 
             if not is_lxst_phone:
-                logger.debug(f"Ignoring non-LXST Phone announce from {dest_hash_hex[:16]}...")
+                # Silently ignore non-LXST Phone announces
                 return
+
+            # Log only LXST Phone announces
+            logger.debug(
+                f"LXST Phone announce! dest_hash={dest_hash_hex[:16]}... "
+                f"from identity {node_id[:16]}... display_name='{display_name}'"
+            )
 
             if node_id == self.reticulum_client.node_id:
                 logger.debug(f"Ignoring our own announce")
@@ -447,18 +452,23 @@ class ReticulumClient:
         try:
             link = RNS.Link(remote_dest)
             logger.info(f"Created outbound media link to {remote_dest.hash.hex()}")
+            logger.debug(f"Link object: status={getattr(link, 'status', 'no status attr')}, callbacks set: established={on_established is not None}, closed={on_closed is not None}")
         except Exception as exc:
             raise RuntimeError(f"Failed to construct RNS.Link: {exc}") from exc
 
         if on_established:
             if hasattr(link, "set_link_established_callback"):
                 link.set_link_established_callback(on_established)
+                logger.debug("Set link established callback via set_link_established_callback")
             elif hasattr(link, "link_established_callback"):
                 link.link_established_callback = on_established  # type: ignore[assignment]
+                logger.debug("Set link established callback via link_established_callback property")
         if on_closed:
             if hasattr(link, "set_link_closed_callback"):
                 link.set_link_closed_callback(on_closed)
+                logger.debug("Set link closed callback via set_link_closed_callback")
             elif hasattr(link, "link_closed_callback"):
                 link.link_closed_callback = on_closed  # type: ignore[assignment]
+                logger.debug("Set link closed callback via link_closed_callback property")
 
         return link

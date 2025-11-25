@@ -1545,6 +1545,11 @@ class MainWindow(QWidget):
             if peer_info:
                 _, remote_identity_key = peer_info
             
+            logger.debug(
+                f"CALL_ACCEPT: media_dest={msg.media_dest}, "
+                f"remote_identity_key={'present' if remote_identity_key else 'MISSING'}"
+            )
+            
             self.call_state.mark_remote_accepted(
                 msg.call_id,
                 remote_media_dest=msg.media_dest,

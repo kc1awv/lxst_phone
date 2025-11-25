@@ -782,6 +782,12 @@ class MediaSession:
                 f"Peer may not have announced their presence yet."
             )
             return
+        
+        logger.debug(
+            f"Initiator handshake: remote_media_dest={self.remote_media_dest}, "
+            f"remote_identity_key={self.remote_identity_key[:32] if self.remote_identity_key else 'None'}..."
+        )
+        
         try:
             link = self.reticulum_client.create_media_link(
                 remote_media_dest=self.remote_media_dest,
