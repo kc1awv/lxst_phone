@@ -492,10 +492,10 @@ class AudioPipeline:
             self._decoder = pycodec2.Codec2(self.codec2_mode)  # type: ignore
 
             self.sample_rate = codec2_sample_rate
-            self.frame_size = int(codec2_sample_rate * self.frame_ms / 1000)
+            self.frame_size = self._encoder.samples_per_frame()  # type: ignore
 
             logger.info(
-                f"Codec2 initialized (mode={self.codec2_mode} bps, sr={codec2_sample_rate})"
+                f"Codec2 initialized (mode={self.codec2_mode} bps, sr={codec2_sample_rate}, frame_size={self.frame_size})"
             )
         except Exception as exc:
             logger.error(f"Failed to init Codec2: {exc}")
@@ -605,7 +605,6 @@ class AudioPipeline:
             if self.codec_type == "opus":
                 pcm = self._decoder.decode(encoded, self.frame_size)  # type: ignore[arg-type]
             else:  # codec2
-                # codec2 decode takes bytes and returns numpy int16 array
                 pcm_array = self._decoder.decode(encoded)  # type: ignore[attr-defined]
                 pcm = pcm_array.tobytes()  # type: ignore
         except Exception as exc:
