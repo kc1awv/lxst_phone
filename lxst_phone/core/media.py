@@ -104,6 +104,14 @@ class MediaManager:
         codec2_mode: int = 3200,
     ) -> None:
         """Start a new media session for the given call."""
+        # Stop any existing session first to prevent race conditions
+        if self.active_session:
+            logger.warning(
+                f"Stopping existing media session (call_id={self.active_call_id}) "
+                f"before starting new one (call_id={call_info.call_id})"
+            )
+            self.stop_session()
+        
         self.active_call_id = call_info.call_id
         self.reticulum_client = reticulum_client
         self.active_session = MediaSession(
@@ -736,6 +744,9 @@ class MediaSession:
 
     def _on_link_timeout(self) -> None:
         """Handle link establishment timeout."""
+        # Clear the timeout reference
+        self.link_timeout = None
+        
         if not self.active and self.link:
             logger.warning(
                 f"Link establishment timeout for call_id={self.call_info.call_id}"
@@ -746,6 +757,8 @@ class MediaSession:
             except Exception as exc:
                 logger.error(f"Error tearing down timed-out link: {exc}")
             self.link = None
+        elif self.active:
+            logger.debug(f"Link timeout fired but link already active for call_id={self.call_info.call_id}")
 
     def initiate_link(self) -> None:
         """
@@ -849,6 +862,11 @@ class MediaSession:
         self.metrics.output_level = output_level
 
     def on_link_closed(self, link: object) -> None:
+        # Cancel link timeout timer if still running
+        if self.link_timeout:
+            self.link_timeout.cancel()
+            self.link_timeout = None
+        
         self.active = False
         self.audio.stop()
         logger.info(f"Link closed for call_id={self.call_info.call_id}")
