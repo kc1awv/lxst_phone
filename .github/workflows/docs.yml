@@ -48,8 +48,8 @@ jobs:
           pip install mkdocs
 
       - name: Build documentation
-        run: mkdocs build --strict --verbose
+        run: mkdocs build --strict --verbose --config-file docs/mkdocs.yml
 
       - name: Deploy to GitHub Pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: mkdocs gh-deploy --force
+        run: mkdocs gh-deploy --force --config-file docs/mkdocs.yml
