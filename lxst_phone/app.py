@@ -1,12 +1,20 @@
+"""
+LXST Phone application entry point.
+
+Simplified to use LXST Telephone primitive instead of custom media/signaling.
+"""
+
 import argparse
 import sys
 from pathlib import Path
 
+import RNS
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from lxst_phone.core.call_state import CallStateMachine
-from lxst_phone.core.reticulum_client import ReticulumClient
+from lxst_phone.core.telephone import TelephoneManager
+from lxst_phone.core.lxmf_peer_discovery import LXMFPeerDiscovery
+from lxst_phone.core.lxmf_announcer import LXMFAnnouncer
 from lxst_phone.ui.main_window import MainWindow
 from lxst_phone.config import Config
 from lxst_phone.identity import (
@@ -22,47 +30,24 @@ logger = get_logger("app")
 def run_app(argv: list[str] | None = None) -> int:
     """
     Entry point for the GUI app.
-    Supports a dev flag to simulate an incoming invite after startup.
     """
     argv = sys.argv[1:] if argv is None else argv
 
     parser = argparse.ArgumentParser(
-        description="LXST Phone prototype",
+        description="LXST Phone - VoIP over Reticulum",
         add_help=True,
-    )
-    parser.add_argument(
-        "--simulate-incoming",
-        action="store_true",
-        help="Dev helper: simulate an incoming invite after startup.",
-    )
-    parser.add_argument(
-        "--simulate-delay-ms",
-        type=int,
-        default=800,
-        help="Delay before firing simulated invite (ms).",
-    )
-    parser.add_argument(
-        "--simulate-remote-id",
-        type=str,
-        default=None,
-        help="Remote ID to use for simulated invite (defaults to sim-<suffix>).",
     )
     parser.add_argument(
         "--audio-input-device",
         type=int,
         default=None,
-        help="Audio input device index (run list_audio_devices.py to see options).",
+        help="Audio input device index.",
     )
     parser.add_argument(
         "--audio-output-device",
         type=int,
         default=None,
-        help="Audio output device index (run list_audio_devices.py to see options).",
-    )
-    parser.add_argument(
-        "--no-audio",
-        action="store_true",
-        help="Disable audio capture/playback (useful for testing with multiple instances).",
+        help="Audio output device index.",
     )
     parser.add_argument(
         "--identity",
@@ -86,18 +71,6 @@ def run_app(argv: list[str] | None = None) -> int:
         help="Disable automatic presence announcements.",
     )
     parser.add_argument(
-        "--announce-period",
-        type=int,
-        default=None,
-        help="Period for presence announcements in minutes (default: 5).",
-    )
-    parser.add_argument(
-        "--display-name",
-        type=str,
-        default=None,
-        help="Display name to use in presence announcements.",
-    )
-    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -108,13 +81,26 @@ def run_app(argv: list[str] | None = None) -> int:
         "--log-file",
         type=str,
         default=None,
-        help="Path to log file (default: ~/.lxst_phone/logs/lxst_phone.log if enabled).",
+        help="Path to log file (default: ~/.lxst_phone/logs/lxst_phone.log).",
     )
     parser.add_argument(
         "--no-log-file",
         action="store_true",
         help="Disable logging to file.",
     )
+    parser.add_argument(
+        "--rns-config",
+        type=str,
+        default=None,
+        help="Path to Reticulum config directory.",
+    )
+    parser.add_argument(
+        "--config-dir",
+        type=str,
+        default=None,
+        help="Path to config directory (default: ~/.lxst_phone). Used for config.json, peers.json, call_history.json, etc.",
+    )
+
     args, qt_args = parser.parse_known_args(argv)
 
     log_file = None
@@ -133,13 +119,24 @@ def run_app(argv: list[str] | None = None) -> int:
     logger.info("LXST Phone starting")
     logger.debug(f"Command line arguments: {argv}")
 
-    from lxst_phone.ringtone import copy_default_ringtones
-    copy_default_ringtones()
+    config_dir = (
+        Path(args.config_dir) if args.config_dir else Path.home() / ".lxst_phone"
+    )
+    config_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Using config directory: {config_dir}")
 
-    identity_path = Path(args.identity) if args.identity else None
+    if args.identity:
+        identity_path = Path(args.identity)
+    else:
+        identity_path = config_dir / "identity"
+
+    if args.new_identity and identity_path and identity_path.exists():
+        logger.warning(f"Deleting existing identity at {identity_path}")
+        identity_path.unlink()
+
+    identity = load_or_create_identity(identity_path=identity_path)
 
     if args.show_identity:
-        identity = load_or_create_identity(identity_path=identity_path)
         info = get_identity_info(identity)
         storage_path = identity_path or get_identity_storage_path()
         logger.info(f"Identity file: {storage_path}")
@@ -150,96 +147,67 @@ def run_app(argv: list[str] | None = None) -> int:
         print(f"Public key: {info['public_key'][:64]}...")
         return 0
 
-    qt_argv = [sys.argv[0]] + qt_args
-    app = QApplication(qt_argv)
+    logger.info("Initializing Reticulum")
+    rns_config_path = args.rns_config if args.rns_config else None
+    reticulum = RNS.Reticulum(configdir=rns_config_path)
 
-    config = Config()
+    try:
+        interface_count = len(reticulum.get_interface_stats())
+        logger.info(f"Reticulum initialized on {interface_count} interface(s)")
+    except Exception as e:
+        logger.warning(f"Could not get interface stats (RPC unavailable): {e}")
+        logger.info("Reticulum initialized (interface count unavailable)")
 
-    audio_input = (
-        args.audio_input_device
-        if args.audio_input_device is not None
-        else config.audio_input_device
-    )
-    audio_output = (
-        args.audio_output_device
-        if args.audio_output_device is not None
-        else config.audio_output_device
-    )
-    audio_enabled = (not args.no_audio) and config.audio_enabled
+    config_path = config_dir / "config.json"
+    config = Config(config_path=config_path)
 
     if args.audio_input_device is not None:
         config.audio_input_device = args.audio_input_device
         config.save()
         logger.info(f"Saved audio input device {args.audio_input_device} to config")
+
     if args.audio_output_device is not None:
         config.audio_output_device = args.audio_output_device
         config.save()
         logger.info(f"Saved audio output device {args.audio_output_device} to config")
 
-    announce_on_start = (
-        (not args.no_announce) if args.no_announce else config.announce_on_start
-    )
-    announce_period_minutes = (
-        args.announce_period
-        if args.announce_period is not None
-        else config.announce_period_minutes
-    )
-    display_name = (
-        args.display_name if args.display_name is not None else config.display_name
-    )
+    if args.no_announce:
+        config.announce_on_start = False
 
-    call_state = CallStateMachine()
+    qt_argv = [sys.argv[0]] + qt_args
+    app = QApplication(qt_argv)
 
-    rclient = ReticulumClient(
-        identity_path=identity_path, force_new_identity=args.new_identity
-    )
-    rclient.start()
+    logger.info("Creating TelephoneManager")
+    telephone = TelephoneManager(identity, config)
 
-    local_id = rclient.node_id
-    logger.info(f"Local node ID: {local_id}")
+    logger.info("Creating LXMF peer discovery")
+    lxmf_discovery = LXMFPeerDiscovery(identity)
+
+    logger.info("Creating LXMF announcer")
+    lxmf_announcer = LXMFAnnouncer(identity, config.display_name)
+
+    if config.announce_on_start:
+        logger.info("Announcing LXMF presence on startup")
+        lxmf_announcer.announce()
+
+    node_id = identity.hash.hex()
+    logger.info(f"Local node ID: {node_id}")
 
     window = MainWindow(
-        call_state=call_state,
-        local_id=local_id,
-        reticulum_client=rclient,
-        audio_input_device=audio_input,
-        audio_output_device=audio_output,
-        audio_enabled=audio_enabled,
+        telephone=telephone,
+        lxmf_discovery=lxmf_discovery,
+        lxmf_announcer=lxmf_announcer,
+        local_id=node_id,
         config=config,
+        config_dir=config_dir,
     )
     window.show()
 
-    def on_message_from_rns(msg):
-        logger.debug(f"on_message_from_rns called for type={msg.msg_type}")
-        window.incomingCallMessage.emit(msg)
+    def cleanup():
+        logger.info("Application shutting down")
+        telephone.shutdown()
 
-    rclient.on_message = on_message_from_rns
+    app.aboutToQuit.connect(cleanup)
 
-    if announce_on_start:
-        name_info = f" as '{display_name}'" if display_name else ""
-        logger.info(f"Sending initial presence announcement{name_info}")
-        rclient.send_presence_announce(display_name=display_name or None)
-
-    if announce_on_start and announce_period_minutes > 0:
-        presence_timer = QTimer()
-        presence_timer.timeout.connect(
-            lambda: rclient.send_presence_announce(display_name=display_name or None)
-        )
-        period_ms = announce_period_minutes * 60 * 1000
-        presence_timer.start(period_ms)
-        logger.info(
-            f"Presence announcements enabled (period: {announce_period_minutes} minutes)"
-        )
-    else:
-        logger.info("Automatic presence announcements disabled")
-
-    if args.simulate_incoming:
-        delay = max(0, args.simulate_delay_ms)
-        logger.debug(f"Scheduling simulated incoming invite in {delay} ms")
-
-        def _fire_simulated_invite():
-            window.simulate_incoming_invite(remote_id=args.simulate_remote_id)
-
-        QTimer.singleShot(delay, _fire_simulated_invite)
-
+    logger.info("Starting Qt event loop")
     return app.exec()

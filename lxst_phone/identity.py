@@ -49,7 +49,6 @@ def load_or_create_identity(
             RNS.log(f"[Identity] Loading identity from {identity_path}")
             identity = RNS.Identity.from_file(str(identity_path))
 
-            # Validate that identity loaded correctly
             if (
                 identity is None
                 or not hasattr(identity, "hash")
@@ -63,7 +62,6 @@ def load_or_create_identity(
         except Exception as exc:
             RNS.log(f"[Identity] Failed to load identity from {identity_path}: {exc}")
             RNS.log(f"[Identity] Creating new identity to replace corrupted file")
-            # Fall through to create new identity
     else:
         RNS.log(f"[Identity] No identity found at {identity_path}")
         RNS.log(f"[Identity] Creating new identity")

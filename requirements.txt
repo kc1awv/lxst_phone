@@ -1,6 +1,5 @@
-PySide6>=6.7
-rns>=0.9.5
-pyaudio>=0.2.13
-sounddevice>=0.5
-opuslib>=3.0
-pycodec2>=4.1.0
+# Core dependencies
+PySide6>=6.7          # Qt GUI framework
+rns>=1.0.4            # Reticulum network stack
+lxmf>=0.5.0           # LXMF for peer discovery with display names
+lxst>=0.4.4           # LXST Telephony primitive (includes built-in tones/ringtones, filters, AGC)

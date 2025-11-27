@@ -39,7 +39,6 @@ def format_last_seen(last_seen: datetime) -> str:
 class PeersWindow(QWidget):
     """Window showing discovered peers and allowing selection."""
 
-    # Signal emitted when user selects a peer
     peerSelected = Signal(str)  # node_id
 
     def __init__(self, peers_storage: PeersStorage, parent=None):
@@ -47,7 +46,6 @@ class PeersWindow(QWidget):
         self.setWindowTitle("Discovered Peers")
         self.resize(500, 400)
 
-        # Use provided peers storage
         self.peers_storage = peers_storage
 
         self._build_ui()
@@ -56,23 +54,19 @@ class PeersWindow(QWidget):
         """Build the peers window UI."""
         layout = QVBoxLayout()
 
-        # Title
         title = QLabel("Discovered Peers")
         title.setStyleSheet("font-weight: bold; font-size: 14pt;")
         layout.addWidget(title)
 
-        # Info label
         info = QLabel("Peers discovered through presence announcements:")
         info.setStyleSheet("color: gray;")
         layout.addWidget(info)
 
-        # Peer list
         self.peer_list = QListWidget()
         self.peer_list.setSelectionMode(QListWidget.SingleSelection)
         self.peer_list.itemDoubleClicked.connect(self._on_peer_double_clicked)
         layout.addWidget(self.peer_list)
 
-        # Buttons
         btn_layout = QHBoxLayout()
 
         self.select_btn = QPushButton("Select Peer")
@@ -108,12 +102,10 @@ class PeersWindow(QWidget):
 
         layout.addLayout(btn_layout)
 
-        # Enable select button when selection changes
         self.peer_list.itemSelectionChanged.connect(self._on_selection_changed)
 
         self.setLayout(layout)
 
-        # Load initial peer list
         self._refresh_list()
 
     def _on_selection_changed(self):
@@ -127,7 +119,6 @@ class PeersWindow(QWidget):
             node_id = item.data(Qt.UserRole)
             peer = self.peers_storage.get(node_id)
             if peer:
-                # Enable block/unblock based on current state
                 self.block_btn.setEnabled(not peer.blocked)
                 self.unblock_btn.setEnabled(peer.blocked)
             else:
