@@ -25,22 +25,18 @@ class Config:
             "input_device": None,  # None = system default
             "output_device": None,
             "enabled": True,
-            "ringtone_enabled": True,  # Enable ringtone playback
-            "ringtone_incoming": "incoming.wav",  # Incoming call ringtone
-            "ringtone_outgoing": "outgoing.wav",  # Outgoing call ringtone
+            "use_filters": True,  # Enable audio filters for better voice quality
+            "filter_type": "voice",  # voice, music, none
+            "bandpass_low": 300,  # Hz - lower frequency cutoff (voice optimized)
+            "bandpass_high": 3400,  # Hz - upper frequency cutoff (voice optimized)
+            "use_agc": True,  # Automatic Gain Control for consistent volume
+            "agc_target_level": -12.0,  # dBFS - target audio level
+            "agc_max_gain": 12.0,  # dB - maximum gain boost
         },
         "codec": {
-            "type": "opus",  # "opus" or "codec2"
-            "sample_rate": 48000,
-            "frame_ms": 20,
-            "channels": 1,
-            "complexity": 10,  # Opus complexity 0-10 (higher = better quality, more CPU)
-            "opus_bitrate": 24000,  # Opus bitrate in bps (8000-128000, default 24000)
-            "codec2_mode": 3200,  # Codec2 mode: 3200, 2400, 1600, 1400, 1300, 1200, 700C (bps)
+            "default_profile": 0x40,  # LXST Profile (0x40 = QUALITY_MEDIUM)
         },
         "network": {
-            "target_jitter_ms": 60,  # Jitter buffer delay
-            "adaptive_jitter": False,  # Future: adaptive jitter buffer
             "announce_on_start": True,  # Send presence announcement on startup
             "announce_period_minutes": 5,  # How often to send presence announcements
         },
@@ -50,12 +46,7 @@ class Config:
             "last_remote_id": "",  # Remember last called number
             "display_name": "",  # User's display name for announcements
         },
-        "security": {
-            "verify_sas": True,  # Prompt for SAS verification on new links
-            "auto_accept_known": False,  # Auto-accept calls from verified contacts
-            "max_calls_per_minute": 5,  # Rate limit: max calls per peer per minute
-            "max_calls_per_hour": 20,  # Rate limit: max calls per peer per hour
-        },
+        "security": {},
     }
 
     def __init__(self, config_path: Optional[Path] = None) -> None:
@@ -148,68 +139,14 @@ class Config:
         self.set("audio", "enabled", value)
 
     @property
-    def ringtone_enabled(self) -> bool:
-        return self.get("audio", "ringtone_enabled", True)
+    def default_profile(self) -> int:
+        """Get default LXST profile."""
+        return self.get("codec", "default_profile", 0x40)
 
-    @ringtone_enabled.setter
-    def ringtone_enabled(self, value: bool) -> None:
-        self.set("audio", "ringtone_enabled", value)
-
-    @property
-    def ringtone_incoming(self) -> str:
-        return self.get("audio", "ringtone_incoming", "incoming.wav")
-
-    @ringtone_incoming.setter
-    def ringtone_incoming(self, value: str) -> None:
-        self.set("audio", "ringtone_incoming", value)
-
-    @property
-    def ringtone_outgoing(self) -> str:
-        return self.get("audio", "ringtone_outgoing", "outgoing.wav")
-
-    @ringtone_outgoing.setter
-    def ringtone_outgoing(self, value: str) -> None:
-        self.set("audio", "ringtone_outgoing", value)
-
-    @property
-    def target_jitter_ms(self) -> int:
-        return self.get("network", "target_jitter_ms", 60)
-
-    @target_jitter_ms.setter
-    def target_jitter_ms(self, value: int) -> None:
-        self.set("network", "target_jitter_ms", value)
-
-    @property
-    def codec_type(self) -> str:
-        return self.get("codec", "type", "opus")
-
-    @codec_type.setter
-    def codec_type(self, value: str) -> None:
-        self.set("codec", "type", value)
-
-    @property
-    def opus_bitrate(self) -> int:
-        return self.get("codec", "opus_bitrate", 24000)
-
-    @opus_bitrate.setter
-    def opus_bitrate(self, value: int) -> None:
-        self.set("codec", "opus_bitrate", value)
-
-    @property
-    def codec2_mode(self) -> int:
-        return self.get("codec", "codec2_mode", 3200)
-
-    @codec2_mode.setter
-    def codec2_mode(self, value: int) -> None:
-        self.set("codec", "codec2_mode", value)
-
-    @property
-    def opus_complexity(self) -> int:
-        return self.get("codec", "complexity", 10)
-
-    @opus_complexity.setter
-    def opus_complexity(self, value: int) -> None:
-        self.set("codec", "complexity", value)
+    @default_profile.setter
+    def default_profile(self, value: int) -> None:
+        """Set default LXST profile."""
+        self.set("codec", "default_profile", value)
 
     @property
     def window_geometry(self) -> tuple[int, int]:
@@ -217,6 +154,54 @@ class Config:
         w = self.get("ui", "window_width", 620)
         h = self.get("ui", "window_height", 550)
         return (w, h)
+
+    @property
+    def use_audio_filters(self) -> bool:
+        """Get whether to use audio filters."""
+        return self.get("audio", "use_filters", True)
+
+    @use_audio_filters.setter
+    def use_audio_filters(self, value: bool) -> None:
+        """Set whether to use audio filters."""
+        self.set("audio", "use_filters", value)
+
+    @property
+    def filter_type(self) -> str:
+        """Get filter type (voice, music, none)."""
+        return self.get("audio", "filter_type", "voice")
+
+    @filter_type.setter
+    def filter_type(self, value: str) -> None:
+        """Set filter type."""
+        if value not in ["voice", "music", "none"]:
+            raise ValueError(f"Invalid filter type: {value}")
+        self.set("audio", "filter_type", value)
+
+    @property
+    def use_agc(self) -> bool:
+        """Get whether to use Automatic Gain Control."""
+        return self.get("audio", "use_agc", True)
+
+    @use_agc.setter
+    def use_agc(self, value: bool) -> None:
+        """Set whether to use Automatic Gain Control."""
+        self.set("audio", "use_agc", value)
+
+    @property
+    def bandpass_range(self) -> tuple[int, int]:
+        """Get bandpass filter range (low_hz, high_hz)."""
+        low = self.get("audio", "bandpass_low", 300)
+        high = self.get("audio", "bandpass_high", 3400)
+        return (low, high)
+
+    @bandpass_range.setter
+    def bandpass_range(self, value: tuple[int, int]) -> None:
+        """Set bandpass filter range."""
+        low, high = value
+        if low >= high:
+            raise ValueError("Low frequency must be less than high frequency")
+        self.set("audio", "bandpass_low", low)
+        self.set("audio", "bandpass_high", high)
 
     @window_geometry.setter
     def window_geometry(self, value: tuple[int, int]) -> None:
@@ -256,19 +241,3 @@ class Config:
     @display_name.setter
     def display_name(self, value: str) -> None:
         self.set("ui", "display_name", value)
-
-    @property
-    def max_calls_per_minute(self) -> int:
-        return self.get("security", "max_calls_per_minute", 5)
-
-    @max_calls_per_minute.setter
-    def max_calls_per_minute(self, value: int) -> None:
-        self.set("security", "max_calls_per_minute", value)
-
-    @property
-    def max_calls_per_hour(self) -> int:
-        return self.get("security", "max_calls_per_hour", 20)
-
-    @max_calls_per_hour.setter
-    def max_calls_per_hour(self, value: int) -> None:
-        self.set("security", "max_calls_per_hour", value)

@@ -22,18 +22,20 @@ class PeerRecord:
     def __init__(
         self,
         node_id: str,
-        display_name: str = "Unknown",
+        display_name: str = "",
         last_seen: datetime | None = None,
         announce_count: int = 1,
         verified: bool = False,
         blocked: bool = False,
+        destination_hash: str = "",
     ):
         self.node_id = node_id
-        self.display_name = display_name
+        self.display_name = display_name if display_name else f"Peer {node_id[:8]}"
         self.last_seen = last_seen or datetime.now()
         self.announce_count = announce_count
         self.verified = verified  # Has SAS been verified?
         self.blocked = blocked  # Is this peer blocked?
+        self.destination_hash = destination_hash  # Destination hash for recall
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for JSON storage."""
@@ -44,6 +46,7 @@ class PeerRecord:
             "announce_count": self.announce_count,
             "verified": self.verified,
             "blocked": self.blocked,
+            "destination_hash": self.destination_hash,
         }
 
     @classmethod
@@ -51,11 +54,12 @@ class PeerRecord:
         """Deserialize from dictionary."""
         return cls(
             node_id=data["node_id"],
-            display_name=data.get("display_name", "Unknown"),
+            display_name=data.get("display_name", ""),
             last_seen=datetime.fromisoformat(data["last_seen"]),
             announce_count=data.get("announce_count", 1),
             verified=data.get("verified", False),
             blocked=data.get("blocked", False),
+            destination_hash=data.get("destination_hash", ""),
         )
 
 
@@ -136,21 +140,25 @@ class PeersStorage:
             with open(self.storage_path, "w") as f:
                 json.dump(data, f, indent=2)
 
-            logger.info(f"Saved {len(self.peers)} peers to {self.storage_path}")
+            logger.debug(f"Saved {len(self.peers)} peers to {self.storage_path}")
         except (OSError, IOError) as exc:
             logger.error(f"Failed to write peers to {self.storage_path}: {exc}")
         except Exception as exc:
             logger.error(f"Unexpected error saving peers to {self.storage_path}: {exc}")
 
     def add_or_update(
-        self, node_id: str, display_name: str | None = None
+        self,
+        node_id: str,
+        display_name: str | None = None,
+        destination_hash: str | None = None,
     ) -> PeerRecord:
         """
         Add a new peer or update existing peer.
 
         Args:
-            node_id: The peer's node ID
+            node_id: The peer's node ID (identity hash)
             display_name: The peer's display name (optional)
+            destination_hash: The peer's destination hash for recall (optional)
 
         Returns:
             The updated or created PeerRecord
@@ -159,14 +167,17 @@ class PeersStorage:
             record = self.peers[node_id]
             if display_name:
                 record.display_name = display_name
+            if destination_hash:
+                record.destination_hash = destination_hash
             record.last_seen = datetime.now()
             record.announce_count += 1
         else:
             record = PeerRecord(
                 node_id=node_id,
-                display_name=display_name or "Unknown",
+                display_name=display_name or f"Peer {node_id[:8]}",
                 last_seen=datetime.now(),
                 announce_count=1,
+                destination_hash=destination_hash or "",
             )
             self.peers[node_id] = record
 
