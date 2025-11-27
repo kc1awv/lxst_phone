@@ -77,7 +77,7 @@ class SASVerificationDialog(QDialog):
 
         button_layout = QHBoxLayout()
 
-        match_btn = QPushButton("✓ Codes Match")
+        match_btn = QPushButton("Codes Match")
         match_btn.setStyleSheet(
             "QPushButton { background-color: #4CAF50; color: white; "
             "font-size: 12pt; font-weight: bold; padding: 12px; border-radius: 4px; } "
@@ -86,7 +86,7 @@ class SASVerificationDialog(QDialog):
         match_btn.clicked.connect(self._on_codes_match)
         button_layout.addWidget(match_btn)
 
-        no_match_btn = QPushButton("✗ Codes Don't Match")
+        no_match_btn = QPushButton("Codes Don't Match")
         no_match_btn.setStyleSheet(
             "QPushButton { background-color: #F44336; color: white; "
             "font-size: 12pt; font-weight: bold; padding: 12px; border-radius: 4px; } "

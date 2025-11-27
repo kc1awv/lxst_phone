@@ -7,6 +7,7 @@ to auto-fill the remote ID field for calls.
 
 from pathlib import Path
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -15,9 +16,48 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QApplication,
 )
 from datetime import datetime
 from lxst_phone.peers_storage import PeersStorage, PeerRecord
+
+
+def get_theme_colors():
+    """Get color palette based on system theme (light or dark mode)."""
+    app = QApplication.instance()
+    if app:
+        palette = app.palette()
+        bg_color = palette.color(QPalette.Window)
+        is_dark = bg_color.lightness() < 128
+    else:
+        is_dark = False
+    
+    if is_dark:
+        return {
+            'primary': '#5DADE2',
+            'success': '#52BE80',
+            'danger': '#EC7063',
+            'verified': '#BB8FCE',
+            'border': '#566573',
+            'light': '#34495E',
+            'bg': '#2C3E50',
+            'fg': '#ECF0F1',
+            'card_bg': '#34495E',
+            'hover_bg': '#48566A',
+        }
+    else:
+        return {
+            'primary': '#4A90E2',
+            'success': '#27AE60',
+            'danger': '#E74C3C',
+            'verified': '#9B59B6',
+            'border': '#BDC3C7',
+            'light': '#ECF0F1',
+            'bg': '#FFFFFF',
+            'fg': '#2C3E50',
+            'card_bg': '#FAFAFA',
+            'hover_bg': '#ECF0F1',
+        }
 
 
 def format_last_seen(last_seen: datetime) -> str:
@@ -44,22 +84,86 @@ class PeersWindow(QWidget):
     def __init__(self, peers_storage: PeersStorage, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Discovered Peers")
-        self.resize(500, 400)
+        self.resize(600, 500)
 
         self.peers_storage = peers_storage
+        
+        # Apply modern styling with dynamic colors
+        colors = get_theme_colors()
+        self.setStyleSheet(f"""
+            QWidget {{
+                font-size: 11pt;
+                color: {colors['fg']};
+            }}
+            QPushButton {{
+                background-color: {colors['primary']};
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
+                opacity: 0.9;
+            }}
+            QPushButton:disabled {{
+                background-color: {colors['border']};
+                color: {colors['fg']};
+                opacity: 0.5;
+            }}
+            QPushButton#blockButton {{
+                background-color: {colors['danger']};
+            }}
+            QPushButton#blockButton:hover {{
+                opacity: 0.9;
+            }}
+            QPushButton#unblockButton {{
+                background-color: {colors['success']};
+            }}
+            QPushButton#unblockButton:hover {{
+                opacity: 0.9;
+            }}
+            QListWidget {{
+                border: 2px solid {colors['border']};
+                border-radius: 6px;
+                background-color: {colors['bg']};
+                color: {colors['fg']};
+                padding: 4px;
+            }}
+            QListWidget::item {{
+                padding: 8px;
+                border-radius: 4px;
+                margin: 2px;
+            }}
+            QListWidget::item:selected {{
+                background-color: {colors['primary']};
+                color: white;
+            }}
+            QListWidget::item:hover {{
+                background-color: {colors['hover_bg']};
+            }}
+        """)
 
         self._build_ui()
 
     def _build_ui(self):
         """Build the peers window UI."""
         layout = QVBoxLayout()
+        layout.setSpacing(12)
+        layout.setContentsMargins(15, 15, 15, 15)
 
+        colors = get_theme_colors()
         title = QLabel("Discovered Peers")
-        title.setStyleSheet("font-weight: bold; font-size: 14pt;")
+        title.setStyleSheet(f"""
+            font-weight: bold;
+            font-size: 18pt;
+            color: {colors['primary']};
+            padding: 8px;
+        """)
         layout.addWidget(title)
 
-        info = QLabel("Peers discovered through presence announcements:")
-        info.setStyleSheet("color: gray;")
+        info = QLabel("Peers discovered through presence announcements")
+        info.setStyleSheet(f"color: {colors['fg']}; opacity: 0.7; font-size: 10pt; padding: 4px;")
         layout.addWidget(info)
 
         self.peer_list = QListWidget()
@@ -72,32 +176,40 @@ class PeersWindow(QWidget):
         self.select_btn = QPushButton("Select Peer")
         self.select_btn.setEnabled(False)
         self.select_btn.clicked.connect(self._on_select_clicked)
+        self.select_btn.setCursor(Qt.PointingHandCursor)
         btn_layout.addWidget(self.select_btn)
 
         self.block_btn = QPushButton("Block")
+        self.block_btn.setObjectName("blockButton")
         self.block_btn.setToolTip("Block this peer (auto-reject calls)")
         self.block_btn.setEnabled(False)
         self.block_btn.clicked.connect(self._on_block_clicked)
+        self.block_btn.setCursor(Qt.PointingHandCursor)
         btn_layout.addWidget(self.block_btn)
 
         self.unblock_btn = QPushButton("Unblock")
+        self.unblock_btn.setObjectName("unblockButton")
         self.unblock_btn.setToolTip("Unblock this peer")
         self.unblock_btn.setEnabled(False)
         self.unblock_btn.clicked.connect(self._on_unblock_clicked)
+        self.unblock_btn.setCursor(Qt.PointingHandCursor)
         btn_layout.addWidget(self.unblock_btn)
 
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self._refresh_list)
+        self.refresh_btn.setCursor(Qt.PointingHandCursor)
         btn_layout.addWidget(self.refresh_btn)
 
         self.clear_btn = QPushButton("Clear All")
         self.clear_btn.clicked.connect(self._on_clear_clicked)
+        self.clear_btn.setCursor(Qt.PointingHandCursor)
         btn_layout.addWidget(self.clear_btn)
 
         btn_layout.addStretch()
 
         self.close_btn = QPushButton("Close")
         self.close_btn.clicked.connect(self.close)
+        self.close_btn.setCursor(Qt.PointingHandCursor)
         btn_layout.addWidget(self.close_btn)
 
         layout.addLayout(btn_layout)
@@ -194,14 +306,18 @@ class PeersWindow(QWidget):
             if peer_info.blocked:
                 status_icons.append("[Blocked]")
 
-            status = f" [{' '.join(status_icons)}]" if status_icons else ""
+            status = f" {' '.join(status_icons)}" if status_icons else ""
+            
             label = f"{peer_info.display_name} ({short_id}) - {format_last_seen(peer_info.last_seen)}{status}"
 
             item = QListWidgetItem(label)
             item.setData(Qt.UserRole, node_id)  # Store full node_id
 
+            colors = get_theme_colors()
             if peer_info.blocked:
-                item.setForeground(Qt.gray)
+                item.setForeground(QColor(colors['danger']))
+            elif peer_info.verified:
+                item.setForeground(QColor(colors['verified']))
 
             tooltip = (
                 f"Display Name: {peer_info.display_name}\n"

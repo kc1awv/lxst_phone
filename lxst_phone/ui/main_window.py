@@ -14,7 +14,8 @@ Includes:
 import time
 from datetime import datetime
 from pathlib import Path
-from PySide6.QtCore import Qt, Slot, Signal, QTimer
+from PySide6.QtCore import Qt, Slot, Signal, QTimer, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QPalette, QColor
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -34,7 +35,56 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QSlider,
     QSpinBox,
+    QApplication,
 )
+
+
+def get_theme_colors():
+    """Get color palette based on system theme (light or dark mode)."""
+    # Detect if we're in dark mode
+    app = QApplication.instance()
+    if app:
+        palette = app.palette()
+        # Check if window background is dark
+        bg_color = palette.color(QPalette.Window)
+        is_dark = bg_color.lightness() < 128
+    else:
+        is_dark = False
+    
+    if is_dark:
+        # Dark mode color palette
+        return {
+            'primary': '#5DADE2',      # Lighter blue for dark backgrounds
+            'success': '#52BE80',      # Lighter green
+            'warning': '#F8C471',      # Lighter orange
+            'danger': '#EC7063',       # Lighter red
+            'info': '#5DADE2',         # Light blue
+            'dark': '#ECF0F1',         # Light text for dark mode
+            'light': '#34495E',        # Dark backgrounds
+            'border': '#566573',       # Darker border
+            'verified': '#BB8FCE',     # Lighter purple
+            'bg': '#2C3E50',           # Dark background
+            'fg': '#ECF0F1',           # Light foreground/text
+            'card_bg': '#34495E',      # Card background
+            'hover_bg': '#48566A',     # Hover state
+        }
+    else:
+        # Light mode color palette
+        return {
+            'primary': '#4A90E2',      # Friendly blue
+            'success': '#27AE60',      # Green
+            'warning': '#F39C12',      # Orange
+            'danger': '#E74C3C',       # Red
+            'info': '#3498DB',         # Light blue
+            'dark': '#2C3E50',         # Dark text
+            'light': '#ECF0F1',        # Light backgrounds
+            'border': '#BDC3C7',       # Border gray
+            'verified': '#9B59B6',     # Purple
+            'bg': '#FFFFFF',           # White background
+            'fg': '#2C3E50',           # Dark foreground/text
+            'card_bg': '#FAFAFA',      # Card background
+            'hover_bg': '#ECF0F1',     # Hover state
+        }
 
 import RNS
 from LXST.Primitives.Telephony import Profiles
@@ -103,6 +153,9 @@ class MainWindow(QWidget):
         self.setWindowTitle("LXST Phone")
         w, h = self.config.window_geometry
         self.resize(w, h)
+        
+        # Apply modern window styling
+        self.setStyleSheet(self._get_global_stylesheet())
 
         self.telephone.call_ringing.connect(self.on_call_ringing)
         self.telephone.call_established.connect(self.on_call_established)
@@ -118,6 +171,180 @@ class MainWindow(QWidget):
         self._update_connection_status()
 
         logger.info(f"MainWindow initialized for {local_id}")
+
+    def _get_global_stylesheet(self) -> str:
+        """Return global stylesheet for modern UI."""
+        colors = get_theme_colors()
+        return f"""
+            QWidget {{
+                font-size: 11pt;
+                color: {colors['fg']};
+            }}
+            
+            QPushButton {{
+                background-color: {colors['primary']};
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 500;
+                min-height: 28px;
+            }}
+            
+            QPushButton:hover {{
+                background-color: {colors['info']};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {colors['primary']};
+                opacity: 0.8;
+            }}
+            
+            QPushButton:disabled {{
+                background-color: {colors['border']};
+                color: {colors['border']};
+            }}
+            
+            QPushButton#callButton {{
+                background-color: {colors['success']};
+                font-size: 12pt;
+                font-weight: bold;
+                padding: 12px 24px;
+            }}
+            
+            QPushButton#callButton:hover {{
+                opacity: 0.9;
+            }}
+            
+            QPushButton#hangupButton {{
+                background-color: {colors['danger']};
+                font-size: 12pt;
+                font-weight: bold;
+                padding: 12px 24px;
+            }}
+            
+            QPushButton#hangupButton:hover {{
+                opacity: 0.9;
+            }}
+            
+            QPushButton#answerButton {{
+                background-color: {colors['success']};
+                font-size: 12pt;
+                font-weight: bold;
+                padding: 12px 24px;
+            }}
+            
+            QPushButton#answerButton:hover {{
+                opacity: 0.9;
+            }}
+            
+            QPushButton#rejectButton {{
+                background-color: {colors['warning']};
+                font-size: 12pt;
+                font-weight: bold;
+                padding: 12px 24px;
+            }}
+            
+            QPushButton#rejectButton:hover {{
+                opacity: 0.9;
+            }}
+            
+            QPushButton#verifyButton {{
+                background-color: {colors['verified']};
+                font-size: 12pt;
+                font-weight: bold;
+                padding: 12px 24px;
+            }}
+            
+            QPushButton#verifyButton:hover {{
+                opacity: 0.9;
+            }}
+            
+            QLineEdit {{
+                border: 2px solid {colors['border']};
+                border-radius: 6px;
+                padding: 8px;
+                background-color: {colors['bg']};
+                color: {colors['fg']};
+                selection-background-color: {colors['primary']};
+                selection-color: white;
+            }}
+            
+            QLineEdit:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QGroupBox {{
+                border: 2px solid {colors['border']};
+                border-radius: 8px;
+                margin-top: 12px;
+                padding-top: 12px;
+                font-weight: bold;
+                background-color: {colors['card_bg']};
+                color: {colors['fg']};
+            }}
+            
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+                color: {colors['fg']};
+            }}
+            
+            QComboBox {{
+                border: 2px solid {colors['border']};
+                border-radius: 6px;
+                padding: 6px;
+                background-color: {colors['bg']};
+                color: {colors['fg']};
+            }}
+            
+            QComboBox:focus {{
+                border: 2px solid {colors['primary']};
+            }}
+            
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 4px;
+            }}
+            
+            QComboBox QAbstractItemView {{
+                background-color: {colors['bg']};
+                color: {colors['fg']};
+                selection-background-color: {colors['primary']};
+                selection-color: white;
+            }}
+            
+            QLabel {{
+                color: {colors['fg']};
+            }}
+            
+            QLabel#statusLabel {{
+                font-size: 13pt;
+                font-weight: 600;
+                color: {colors['fg']};
+            }}
+            
+            QLabel#titleLabel {{
+                font-size: 18pt;
+                font-weight: bold;
+                color: {colors['primary']};
+                padding: 8px;
+            }}
+            
+            QCheckBox {{
+                color: {colors['fg']};
+            }}
+            
+            QPlainTextEdit {{
+                border: 2px solid {colors['border']};
+                border-radius: 6px;
+                background-color: {colors['card_bg']};
+                color: {colors['fg']};
+                font-family: 'Courier New', monospace;
+            }}
+        """
 
     def _build_ui(self) -> None:
         """Build the UI."""
@@ -171,28 +398,48 @@ class MainWindow(QWidget):
         layout.setSpacing(8)
 
         status_layout = QHBoxLayout()
-        self.status_label = QLabel("Status: Ready")
+        self.status_label = QLabel("Ready to connect")
+        self.status_label.setObjectName("statusLabel")
         self.status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         status_layout.addWidget(self.status_label, 1)
 
-        self.connection_label = QLabel("⚫ RNS: Connecting...")
+        self.connection_label = QLabel("RNS: Connecting...")
         self.connection_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.connection_label.setToolTip("Reticulum Network Stack connection status")
+        self.connection_label.setStyleSheet("""
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-weight: 500;
+        """)
         status_layout.addWidget(self.connection_label)
         layout.addLayout(status_layout)
 
-        self.security_label = QLabel("Security: [Not Connected]")
+        colors = get_theme_colors()
+        
+        self.security_label = QLabel("Security: Not Connected")
         self.security_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.security_label.setStyleSheet(
-            "QLabel { border: 1px solid palette(mid); padding: 4px; font-family: monospace; }"
-        )
+        self.security_label.setStyleSheet(f"""
+            border: 2px solid {colors['border']};
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            background-color: {colors['bg']};
+            color: {colors['fg']};
+            font-weight: 500;
+        """)
         layout.addWidget(self.security_label)
 
-        self.remote_banner = QLabel("Remote: [Not Connected]")
+        self.remote_banner = QLabel("Remote: Not Connected")
         self.remote_banner.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.remote_banner.setStyleSheet(
-            "QLabel { border: 1px solid palette(mid); padding: 4px; font-family: monospace; }"
-        )
+        self.remote_banner.setStyleSheet(f"""
+            border: 2px solid {colors['border']};
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            background-color: {colors['bg']};
+            color: {colors['fg']};
+            font-weight: 500;
+        """)
         layout.addWidget(self.remote_banner)
 
         local_group = QGroupBox("Local Identity")
@@ -202,17 +449,6 @@ class MainWindow(QWidget):
             Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
         )
         local_layout.addWidget(self.local_id_label)
-
-        name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("Display Name:"))
-        self.display_name_input = QLineEdit()
-        self.display_name_input.setPlaceholderText("Your name (for peer discovery)")
-        self.display_name_input.setText(self.config.display_name)
-        name_layout.addWidget(self.display_name_input)
-        self.save_name_button = QPushButton("Save")
-        self.save_name_button.clicked.connect(self.on_save_display_name)
-        name_layout.addWidget(self.save_name_button)
-        local_layout.addLayout(name_layout)
 
         local_group.setLayout(local_layout)
         layout.addWidget(local_group)
@@ -227,62 +463,80 @@ class MainWindow(QWidget):
         dest_layout.addWidget(self.remote_id_input)
         layout.addLayout(dest_layout)
 
+        codec_layout = QHBoxLayout()
+        codec_layout.addWidget(QLabel("Call Profile:"))
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItem("Ultra Low Bandwidth", Profiles.BANDWIDTH_ULTRA_LOW)
+        self.profile_combo.addItem("Very Low Bandwidth", Profiles.BANDWIDTH_VERY_LOW)
+        self.profile_combo.addItem("Low Bandwidth", Profiles.BANDWIDTH_LOW)
+        self.profile_combo.addItem("Medium Quality (Default)", Profiles.QUALITY_MEDIUM)
+        self.profile_combo.addItem("High Quality", Profiles.QUALITY_HIGH)
+        self.profile_combo.addItem("Max Quality", Profiles.QUALITY_MAX)
+        self.profile_combo.addItem("Low Latency", Profiles.LATENCY_LOW)
+        self.profile_combo.addItem("Ultra Low Latency", Profiles.LATENCY_ULTRA_LOW)
+        self.profile_combo.setCurrentIndex(3)  # Default to Medium Quality
+        codec_layout.addWidget(self.profile_combo)
+        layout.addLayout(codec_layout)
+
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+        
         self.call_button = QPushButton("Call")
+        self.call_button.setObjectName("callButton")
         self.call_button.clicked.connect(self.on_call_clicked)
+        self.call_button.setCursor(Qt.PointingHandCursor)
         btn_layout.addWidget(self.call_button)
 
         self.hangup_button = QPushButton("Hang Up")
+        self.hangup_button.setObjectName("hangupButton")
         self.hangup_button.clicked.connect(self.on_hangup_clicked)
         self.hangup_button.setEnabled(False)
+        self.hangup_button.setCursor(Qt.PointingHandCursor)
         btn_layout.addWidget(self.hangup_button)
 
         self.answer_button = QPushButton("Answer")
+        self.answer_button.setObjectName("answerButton")
         self.answer_button.clicked.connect(self.on_answer_clicked)
         self.answer_button.setEnabled(False)
+        self.answer_button.setCursor(Qt.PointingHandCursor)
         btn_layout.addWidget(self.answer_button)
 
         self.reject_button = QPushButton("Reject")
+        self.reject_button.setObjectName("rejectButton")
         self.reject_button.clicked.connect(self.on_reject_clicked)
         self.reject_button.setEnabled(False)
+        self.reject_button.setCursor(Qt.PointingHandCursor)
         btn_layout.addWidget(self.reject_button)
 
         self.verify_button = QPushButton("Verify Security")
+        self.verify_button.setObjectName("verifyButton")
         self.verify_button.setToolTip("Verify SAS code to confirm peer identity")
         self.verify_button.clicked.connect(self.on_verify_security_clicked)
         self.verify_button.setEnabled(False)
+        self.verify_button.setCursor(Qt.PointingHandCursor)
         btn_layout.addWidget(self.verify_button)
 
         layout.addLayout(btn_layout)
 
-        codec_layout = QHBoxLayout()
-        codec_layout.addWidget(QLabel("Call Profile:"))
-        self.profile_combo = QComboBox()
-        self.profile_combo.addItem("Quality Max (96 kbps Opus)", Profiles.QUALITY_MAX)
-        self.profile_combo.addItem("Quality High (80 kbps Opus)", Profiles.QUALITY_HIGH)
-        self.profile_combo.addItem("Balanced (64 kbps Opus)", Profiles.QUALITY_MEDIUM)
-        self.profile_combo.addItem("Bandwidth Low (48 kbps)", Profiles.BANDWIDTH_LOW)
-        self.profile_combo.addItem(
-            "Bandwidth Very Low (32 kbps)", Profiles.BANDWIDTH_VERY_LOW
-        )
-        self.profile_combo.addItem(
-            "Bandwidth Ultra Low (16 kbps)", Profiles.BANDWIDTH_ULTRA_LOW
-        )
-        self.profile_combo.setCurrentIndex(2)  # Default to balanced
-        codec_layout.addWidget(self.profile_combo)
-        layout.addLayout(codec_layout)
-
         nav_layout = QHBoxLayout()
+        nav_layout.setSpacing(10)
+        
         self.announce_button = QPushButton("Announce")
         self.announce_button.clicked.connect(self.on_announce_clicked)
+        self.announce_button.setCursor(Qt.PointingHandCursor)
+        self.announce_button.setToolTip("Broadcast your presence to the network")
         nav_layout.addWidget(self.announce_button)
 
         self.peers_button = QPushButton("Discovered Peers")
         self.peers_button.clicked.connect(self.on_show_peers)
+        self.peers_button.setCursor(Qt.PointingHandCursor)
+        self.peers_button.setToolTip("View all discovered peers")
         nav_layout.addWidget(self.peers_button)
 
         self.history_button = QPushButton("Call History")
         self.history_button.clicked.connect(self.on_show_history)
+        self.history_button.setCursor(Qt.PointingHandCursor)
+        self.history_button.setToolTip("View your call history")
         nav_layout.addWidget(self.history_button)
 
         nav_layout.addStretch()
@@ -299,8 +553,31 @@ class MainWindow(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
 
         title = QLabel("Settings")
-        title.setStyleSheet("font-size: 16pt; font-weight: bold;")
+        title.setObjectName("titleLabel")
         layout.addWidget(title)
+
+        # Display Name section
+        identity_group = QGroupBox("Identity")
+        identity_layout = QGridLayout()
+        
+        identity_layout.addWidget(QLabel("Display Name:"), 0, 0)
+        self.display_name_input = QLineEdit()
+        self.display_name_input.setPlaceholderText("Your name (for peer discovery)")
+        self.display_name_input.setText(self.config.display_name)
+        identity_layout.addWidget(self.display_name_input, 0, 1)
+        
+        self.save_name_button = QPushButton("Save")
+        self.save_name_button.clicked.connect(self.on_save_display_name)
+        identity_layout.addWidget(self.save_name_button, 0, 2)
+        
+        colors = get_theme_colors()
+        help_text = QLabel("This name will be broadcast with presence announcements")
+        help_text.setStyleSheet(f"font-size: 9pt; color: {colors['fg']};")
+        help_text.setWordWrap(True)
+        identity_layout.addWidget(help_text, 1, 0, 1, 3)
+        
+        identity_group.setLayout(identity_layout)
+        layout.addWidget(identity_group)
 
         audio_group = QGroupBox("Audio Devices")
         audio_layout = QGridLayout()
@@ -322,7 +599,7 @@ class MainWindow(QWidget):
 
         self._refresh_audio_devices()
 
-        filter_group = QGroupBox("Audio Filters (Improves Voice Quality)")
+        filter_group = QGroupBox("Audio Filters")
         filter_layout = QGridLayout()
 
         filter_layout.addWidget(QLabel("Enable Filters:"), 0, 0)
@@ -387,7 +664,8 @@ class MainWindow(QWidget):
             "Target Level: How loud to make the audio (-12 dBFS is typical)\n"
             "Max Gain: Maximum amplification allowed (prevent over-boosting)"
         )
-        agc_help.setStyleSheet("font-size: 8pt; color: palette(mid);")
+        colors = get_theme_colors()
+        agc_help.setStyleSheet(f"font-size: 8pt; color: {colors['fg']};")
         agc_help.setWordWrap(True)
         agc_advanced_layout.addWidget(agc_help, 2, 0, 1, 3)
 
@@ -405,7 +683,8 @@ class MainWindow(QWidget):
             "• AGC: Automatically balances volume levels\n"
             "Note: Restart required to apply filter changes"
         )
-        help_label.setStyleSheet("font-size: 9pt; color: palette(mid);")
+        colors = get_theme_colors()
+        help_label.setStyleSheet(f"font-size: 9pt; color: {colors['fg']};")
         help_label.setWordWrap(True)
         filter_layout.addWidget(help_label, 4, 0, 1, 2)
 
@@ -427,7 +706,7 @@ class MainWindow(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
 
         title = QLabel("Event Log")
-        title.setStyleSheet("font-size: 16pt; font-weight: bold;")
+        title.setObjectName("titleLabel")
         layout.addWidget(title)
 
         self.event_log = QPlainTextEdit()
@@ -588,12 +867,25 @@ class MainWindow(QWidget):
 
     def _update_connection_status(self) -> None:
         """Update the RNS connection status indicator."""
+        colors = get_theme_colors()
         if self.telephone and self.telephone.telephone:
-            self.connection_label.setText("🟢 RNS: Connected")
-            self.connection_label.setStyleSheet("color: green;")
+            self.connection_label.setText("RNS: Connected")
+            self.connection_label.setStyleSheet(f"""
+                background-color: {colors['success']};
+                color: white;
+                padding: 6px 12px;
+                border-radius: 12px;
+                font-weight: bold;
+            """)
         else:
-            self.connection_label.setText("⚫ RNS: Connecting...")
-            self.connection_label.setStyleSheet("color: gray;")
+            self.connection_label.setText("RNS: Connecting...")
+            self.connection_label.setStyleSheet(f"""
+                background-color: {colors['border']};
+                color: white;
+                padding: 6px 12px;
+                border-radius: 12px;
+                font-weight: 500;
+            """)
 
     def _update_call_timer(self) -> None:
         """Update the call timer display."""
@@ -610,9 +902,18 @@ class MainWindow(QWidget):
                 else:
                     peer_info = self._active_call_peer[:16]
 
+            colors = get_theme_colors()
             self.status_label.setText(
                 f"In call with {peer_info} - {minutes:02d}:{seconds:02d}"
             )
+            self.status_label.setStyleSheet(f"""
+                background-color: {colors['success']};
+                color: white;
+                padding: 10px 15px;
+                border-radius: 8px;
+                border-left: 4px solid {colors['primary']};
+                font-weight: bold;
+            """)
 
     def append_event(self, message: str) -> None:
         """Append an event to the event log."""
@@ -875,9 +1176,36 @@ class MainWindow(QWidget):
         peer = self.peers_storage.get(identity_hash)
         display_name = peer.display_name if peer else identity_hash[:16]
 
-        self.status_label.setText(f"In call with {display_name}...")
+        colors = get_theme_colors()
+        self.status_label.setText(f"In call with {display_name}")
+        self.status_label.setStyleSheet(f"""
+            background-color: {colors['success']};
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            border-left: 4px solid {colors['primary']};
+            font-weight: bold;
+        """)
         self.remote_banner.setText(f"Remote: Connected to {display_name}")
-        self.security_label.setText("Security: [ENC] Encrypted (verify SAS to confirm)")
+        self.remote_banner.setStyleSheet(f"""
+            border: 2px solid {colors['success']};
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            background-color: {colors['card_bg']};
+            color: {colors['fg']};
+            font-weight: 500;
+        """)
+        self.security_label.setText("Security: Encrypted (verify SAS to confirm)")
+        self.security_label.setStyleSheet(f"""
+            border: 2px solid {colors['warning']};
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            background-color: {colors['card_bg']};
+            color: {colors['fg']};
+            font-weight: 500;
+        """)
         self.append_event(f"Call established with {display_name}")
 
         self.hangup_button.setEnabled(True)
@@ -924,9 +1252,35 @@ class MainWindow(QWidget):
             self.append_event(f"Call ended (duration: {duration}s)")
             self._call_start_time = None
 
-        self.status_label.setText("Ready")
-        self.remote_banner.setText("Remote: [Not Connected]")
-        self.security_label.setText("Security: [Not Connected]")
+        colors = get_theme_colors()
+        self.status_label.setText("Ready to connect")
+        self.status_label.setStyleSheet(f"""
+            background-color: {colors['card_bg']};
+            color: {colors['fg']};
+            padding: 10px 15px;
+            border-radius: 8px;
+            border-left: 4px solid {colors['info']};
+        """)
+        self.remote_banner.setText("Remote: Not Connected")
+        self.remote_banner.setStyleSheet(f"""
+            border: 2px solid {colors['border']};
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            background-color: {colors['bg']};
+            color: {colors['fg']};
+            font-weight: 500;
+        """)
+        self.security_label.setText("Security: Not Connected")
+        self.security_label.setStyleSheet(f"""
+            border: 2px solid {colors['border']};
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            background-color: {colors['bg']};
+            color: {colors['fg']};
+            font-weight: 500;
+        """)
 
         self.call_button.setEnabled(True)
         self.hangup_button.setEnabled(False)
@@ -993,10 +1347,28 @@ class MainWindow(QWidget):
 
         if verified:
             logger.info(f"SAS verified for peer {peer_id[:16]}...")
+            colors = get_theme_colors()
             self.peers_storage.mark_verified(peer_id)
             self.peers_storage.save()
-            self.security_label.setText(f"Security: [ENC] [V] Encrypted & Verified")
+            self.security_label.setText("Security: Encrypted & Verified")
+            self.security_label.setStyleSheet(f"""
+                border: 2px solid {colors['verified']};
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-family: monospace;
+                background-color: {colors['card_bg']};
+                font-weight: bold;
+                color: {colors['verified']};
+            """)
             self.status_label.setText("Security verified!")
+            self.status_label.setStyleSheet(f"""
+                background-color: {colors['verified']};
+                color: white;
+                padding: 10px 15px;
+                border-radius: 8px;
+                border-left: 4px solid {colors['primary']};
+                font-weight: bold;
+            """)
             self.append_event(f"SAS verified for {display_name}")
             QTimer.singleShot(2000, lambda: self._update_call_timer())
         else:
